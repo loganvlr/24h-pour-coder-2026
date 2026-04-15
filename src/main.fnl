@@ -27,6 +27,7 @@
 (var lives 10)
 (var wave 0)
 (var enemies [])
+(var liste-tours [])
 
 ;; Classe ennemi
 (fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p]
@@ -101,7 +102,8 @@
 (fn update-enemies []
   (each [_ enemy (ipairs enemies)]
     (when enemy.alive
-      (: enemy :suivre-chemin)))
+      (: enemy :suivre-chemin))
+      )
   (for [i (length enemies) 1 -1]
     (let [enemy (. enemies i)]
       (when (not enemy.alive)
@@ -114,6 +116,58 @@
     (when enemy.alive
       (: enemy :afficher))))
 
+;; Tours
+;; --- LE CONSTRUCTEUR DE TOUR ---
+(fn creer-tour [nom-p x-p y-p]
+  {
+   :nom nom-p
+   :x x-p
+   :y y-p
+   :niveau 1
+   :range 40
+   :puissance 1
+   :sprite 1
+   :timer-tir 0
+
+   ;; Logique de détection et de tir
+    :tirs (fn [self]
+      (each [_ enemy (ipairs enemies)]
+        (let [dx (- enemy.x self.x)
+              dy (- enemy.y self.y)
+              distance-au-carre (+ (* dx dx) (* dy dy))
+              portee-au-carre (* self.range self.range)]
+          
+          (if (<= distance-au-carre portee-au-carre)
+              (: enemy :prendre-degats 1)))))
+
+   ;; Amélioration de la tour
+   :ameliorer (fn [self]
+                (set self.niveau (+ self.niveau 1))
+                (set self.range (+ self.range 10))
+                (set self.puissance (+ self.puissance 0.5)))
+
+   ;; Affichage graphique
+   :afficher (fn [self]
+               ;; Dessine la tour
+               (spr self.sprite (- self.x 4) (- self.y 4) 0)
+               ;; Affiche le niveau au-dessus
+               (print self.niveau (- self.x 2) (- self.y 12) 15))
+  })
+
+;; --- FONCTIONS DE GESTION ---
+
+(fn spawn-tour [nom x y]
+  (table.insert liste-tours (creer-tour nom x y)))
+
+(fn update-tours []
+  (each [_ t (ipairs liste-tours)]
+    (: t :tirs)))
+
+(fn draw-tours []
+  (each [_ t (ipairs liste-tours)]
+    (: t :afficher)))
+
+
 ;; INIT
 (fn init-game []
   (set tick 0)
@@ -122,6 +176,8 @@
   (set wave 1)
   (set enemies [])
   (spawn-enemy "basic1" 1 100 1)
+  (spawn-tour "tour1" 100 100)
+
   (set state :playing))
 
 ;; BOUCLE PRINCIPALE
@@ -139,10 +195,12 @@
 
     :playing  (do
                 (update-enemies)
+                (update-tours)
                 (when (<= lives 0) (set state :gameover))
                 (cls 0)
                 (map 0 0 30 17)
                 (draw-enemies)
+                (draw-tours)
                 (draw-ui))
 
     :gameover (do
