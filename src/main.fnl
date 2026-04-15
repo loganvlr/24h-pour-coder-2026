@@ -22,9 +22,9 @@
 ;; une portee de detection, un cooldown entre chaque tir,
 ;; un sprite pour l'affichage et un nom affiche dans le shop.
 (local TOUR-TYPES
-  {:archer  {:cout 50  :puissance 3  :range 40 :cooldown 30 :sprite 366 :nom "Archer"}
-   :mage    {:cout 80  :puissance 7  :range 30 :cooldown 60 :sprite 368 :nom "Mage"}
-   :cannon  {:cout 120 :puissance 15 :range 25 :cooldown 90 :sprite 370 :nom "Cannon"}})
+  {:ecraseur  {:cout 50  :puissance 3  :range 40 :cooldown 30 :sprite 392 :nom "Ecraseur"}
+   :tesla    {:cout 80  :puissance 7  :range 30 :cooldown 60 :sprite 366 :nom "Tesla"}
+   :canon  {:cout 120 :puissance 15 :range 60 :cooldown 90 :sprite 430 :nom "Canon"}})
 
 ;; Cout pour ameliorer une tour selon son niveau actuel.
 ;; Index 1 = passage du niveau 1 au 2, index 2 = niveau 2 au 3, etc.
@@ -265,25 +265,61 @@
 ;; Parametres :
 ;;   nom-p    : nom affiche (pour debug et shop)
 ;;   x-p, y-p : position du coin haut-gauche du sprite 16x16
-;;   type-key : cle dans TOUR-TYPES (:archer, :mage, :cannon)
+;;   type-key : cle dans TOUR-TYPES (:ecraseur, :tesla, :canon)
 (fn creer-tour [nom-p x-p y-p type-key]
   (let [template (. TOUR-TYPES type-key)]
     {:nom nom-p
      :x x-p
      :y y-p
-     :type type-key        ;; type de tour pour retrouver le template
-     :niveau 1             ;; niveau actuel (1 a MAX-NIVEAU)
+     :type type-key
+     :niveau 1
      :range template.range
      :puissance template.puissance
      :sprite template.sprite
      :cooldown template.cooldown
-     :timer_tir 0          ;; compteur de frames depuis le dernier tir
+     :timer_tir 0
+     ;; Direction du canon : 0=droite, 1=bas, 2=gauche, 3=haut
+     ;; Seul le canon utilise cette propriete, les autres tours l'ignorent
+     :direction 0
 
-     ;; Logique de tir : incremente le timer a chaque frame.
-     ;; Quand le cooldown est atteint, cherche l'ennemi le plus avance
-     ;; (index-chemin le plus grand) dans la portee de la tour.
-     ;; La distance est calculee depuis le centre du sprite (x+8, y+8).
-     ;; Si une cible est trouvee, inflige les degats et reset le timer.
+     ;; Verifie si un ennemi est dans la ligne de tir du canon.
+     ;; Le canon ne tire que dans un couloir aligne sur sa direction.
+     ;; Le couloir fait 16 pixels de large (la taille d'une tile).
+     ;; Retourne true si l'ennemi est dans le couloir ET dans la portee.
+     :dans-ligne-de-tir (fn [self enemy-x enemy-y]
+       (let [cx (+ self.x 8)
+             cy (+ self.y 8)
+             dx (- enemy-x cx)
+             dy (- enemy-y cy)
+             largeur 16]
+         (if
+           ;; Direction droite : ennemi a droite, aligne verticalement
+           (= self.direction 0)
+           (and (> dx 0) (<= dx self.range)
+                (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
+
+           ;; Direction bas : ennemi en bas, aligne horizontalement
+           (= self.direction 1)
+           (and (> dy 0) (<= dy self.range)
+                (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
+
+           ;; Direction gauche : ennemi a gauche, aligne verticalement
+           (= self.direction 2)
+           (and (< dx 0) (>= dx (- 0 self.range))
+                (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
+
+           ;; Direction haut : ennemi en haut, aligne horizontalement
+           (= self.direction 3)
+           (and (< dy 0) (>= dy (- 0 self.range))
+                (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
+
+           ;; Fallback
+           false)))
+
+     ;; Logique de tir.
+     ;; Pour le canon : verifie que l'ennemi est dans la ligne de tir.
+     ;; Pour les autres tours : verifie la distance circulaire classique.
+     ;; Dans les deux cas, cible l'ennemi le plus avance dans le chemin.
      :tirs (fn [self]
              (set self.timer_tir (+ self.timer_tir 1))
              (when (>= self.timer_tir self.cooldown)
@@ -293,11 +329,17 @@
                      cy (+ self.y 8)]
                  (each [_ enemy (ipairs enemies)]
                    (when (and enemy.alive (> enemy.pv 0))
-                     (let [dx (- enemy.x cx)
-                           dy (- enemy.y cy)
-                           dist-sq (+ (* dx dx) (* dy dy))
-                           range-sq (* self.range self.range)]
-                       (when (and (<= dist-sq range-sq)
+                     (let [in-range
+                           (if (= self.type :canon)
+                               ;; Canon : detection en ligne
+                               (: self :dans-ligne-de-tir enemy.x enemy.y)
+                               ;; Autres tours : detection circulaire
+                               (let [dx (- enemy.x cx)
+                                     dy (- enemy.y cy)
+                                     dist-sq (+ (* dx dx) (* dy dy))
+                                     range-sq (* self.range self.range)]
+                                 (<= dist-sq range-sq)))]
+                       (when (and in-range
                                   (>= enemy.index-chemin best-waypoint))
                          (set best enemy)
                          (set best-waypoint enemy.index-chemin))))))
@@ -305,16 +347,16 @@
                  (set self.timer_tir 0)
                  (: best :prendre-degats self.puissance))))
 
-     ;; Ameliore la tour d'un niveau : augmente les degats et la portee,
-     ;; reduit le cooldown (minimum 10 frames pour eviter le spam).
+     ;; Tourne le canon dans la direction suivante (cycle : 0->1->2->3->0)
+     :tourner (fn [self]
+                (set self.direction (% (+ self.direction 1) 4)))
+
      :ameliorer (fn [self]
                   (set self.niveau (+ self.niveau 1))
                   (set self.range (+ self.range 8))
                   (set self.puissance (+ self.puissance 3))
                   (set self.cooldown (math.max 10 (- self.cooldown 5))))
 
-     ;; Calcule le prix de vente de la tour : 50% du total investi
-     ;; (cout d'achat + cout de toutes les ameliorations effectuees).
      :valeur-vente (fn [self]
                      (let [template (. TOUR-TYPES self.type)
                            base template.cout]
@@ -324,11 +366,26 @@
                            (set total (+ total (. UPGRADE-COUTS i)))))
                        (math.floor (* total 0.5))))
 
-     ;; Dessine la tour : sprite 2x2 (16x16 pixels) a sa position,
-     ;; et le numero de niveau au-dessus.
+     ;; Affichage de la tour.
+     ;; Pour le canon, dessine aussi un indicateur de direction
+     ;; sous forme de ligne depuis le centre vers la direction de tir.
      :afficher (fn [self]
-                 (spr self.sprite self.x self.y 0 1 0 0 2 2)
-                 (print self.niveau (+ self.x 6) (- self.y 8) 15))}))
+                 ;; Le parametre "flip" de spr permet de retourner le sprite.
+                 ;; rotation : 0=normal, 1=90deg, 2=180deg, 3=270deg
+                 ;; On utilise la direction du canon comme rotation du sprite.
+                 (let [rot (if (= self.type :canon) (% (+ self.direction 3) 4) 0)]
+                  (spr self.sprite self.x self.y 0 1 0 rot 2 2))
+                 (print self.niveau (+ self.x 6) (- self.y 8) 15)
+
+                 ;; Indicateur de direction pour le canon (ligne de tir)
+                 (when (= self.type :canon)
+                   (let [cx (+ self.x 8)
+                         cy (+ self.y 8)
+                         len self.range]
+                     (if (= self.direction 0) (line cx cy (+ cx len) cy 2)
+                         (= self.direction 1) (line cx cy cx (+ cy len) 2)
+                         (= self.direction 2) (line cx cy (- cx len) cy 2)
+                         (= self.direction 3) (line cx cy cx (- cy len) 2)))))}))
 
 ;; ============================================================
 ;; GESTION DES TOURS
@@ -382,31 +439,31 @@
   (print "CHOISIR UNE TOUR" 65 5 12 true)
   (print (.. "Gold: " gold) 5 5 14)
 
-  ;; Archer : tour rapide, degats faibles, longue portee
+  ;; ecraseur : tour rapide, degats faibles, longue portee
   (let [sel (= shop-cursor 0)
         col (if sel 6 13)
-        t (. TOUR-TYPES :archer)]
+        t (. TOUR-TYPES :ecraseur)]
     (rectb 20 25 200 22 col)
     (when sel (rect 21 26 198 20 1))
-    (print (.. "ARCHER  -  $" t.cout) 30 29 col)
+    (print (.. "ECRASEUR  -  $" t.cout) 30 29 col)
     (print (.. "DMG:" t.puissance " RNG:" t.range " SPD:" t.cooldown) 30 38 15))
 
-  ;; Mage : tour equilibree, degats moyens, portee moyenne
+  ;; tesla : tour equilibree, degats moyens, portee moyenne
   (let [sel (= shop-cursor 1)
         col (if sel 9 13)
-        t (. TOUR-TYPES :mage)]
+        t (. TOUR-TYPES :tesla)]
     (rectb 20 52 200 22 col)
     (when sel (rect 21 53 198 20 1))
-    (print (.. "MAGE  -  $" t.cout) 30 56 col)
+    (print (.. "TESLA  -  $" t.cout) 30 56 col)
     (print (.. "DMG:" t.puissance " RNG:" t.range " SPD:" t.cooldown) 30 65 15))
 
-  ;; Cannon : tour lente, gros degats, courte portee
+  ;; Canon : tour lente, gros degats, courte portee
   (let [sel (= shop-cursor 2)
         col (if sel 2 13)
-        t (. TOUR-TYPES :cannon)]
+        t (. TOUR-TYPES :canon)]
     (rectb 20 79 200 22 col)
     (when sel (rect 21 80 198 20 1))
-    (print (.. "CANNON  -  $" t.cout) 30 83 col)
+    (print (.. "CANON  -  $" t.cout) 30 83 col)
     (print (.. "DMG:" t.puissance " RNG:" t.range " SPD:" t.cooldown) 30 92 15))
 
   ;; Option annuler pour fermer le shop sans acheter
@@ -432,9 +489,9 @@
         (set shop-mode nil)
 
         ;; Le joueur a choisi un type de tour
-        (let [type-key (if (= shop-cursor 0) :archer
-                           (= shop-cursor 1) :mage
-                           :cannon)
+        (let [type-key (if (= shop-cursor 0) :ecraseur
+                           (= shop-cursor 1) :tesla
+                           :canon)
               template (. TOUR-TYPES type-key)]
           (if (>= gold template.cout)
               ;; Assez d'or : creer la tour, retirer l'emplacement, fermer le shop
@@ -463,60 +520,71 @@
 (fn draw-shop-gestion []
   (cls 0)
   (let [tour shop-tour
-        template (. TOUR-TYPES tour.type)]
+        template (. TOUR-TYPES tour.type)
+        is-canon (= tour.type :canon)
+        ;; Noms des directions pour l'affichage
+        dir-noms ["Droite" "Bas" "Gauche" "Haut"]]
     (print (.. "GESTION : " template.nom) 55 5 12 true)
     (print (.. "Gold: " gold) 5 5 14)
 
-    ;; Affichage des stats actuelles de la tour
+    ;; Stats actuelles
     (print (.. "Niveau: " tour.niveau "/" MAX-NIVEAU) 30 22 15)
     (print (.. "Degats: " tour.puissance) 30 32 15)
     (print (.. "Portee: " tour.range) 30 42 15)
     (print (.. "Vitesse: " tour.cooldown " (bas=rapide)") 30 52 15)
+    ;; Afficher la direction si c'est un canon
+    (when is-canon
+      (print (.. "Direction: " (. dir-noms (+ tour.direction 1))) 130 42 2))
 
-    ;; Option ameliorer : affiche le cout et les stats apres upgrade.
-    ;; Si la tour est deja au niveau max, affiche un message.
+    ;; Option 0 : Ameliorer
     (let [sel (= shop-cursor 0)
           col (if sel 6 13)
           can-upgrade (< tour.niveau MAX-NIVEAU)
           upgrade-cout (if can-upgrade (. UPGRADE-COUTS tour.niveau) 0)]
-      (rectb 20 66 200 22 col)
-      (when sel (rect 21 67 198 20 1))
+      (rectb 20 62 200 22 col)
+      (when sel (rect 21 63 198 20 1))
       (if can-upgrade
           (do
-            (print (.. "AMELIORER  -  $" upgrade-cout) 30 70 col)
+            (print (.. "AMELIORER  -  $" upgrade-cout) 30 66 col)
             (print (.. "-> DMG:" (+ tour.puissance 3)
                        " RNG:" (+ tour.range 8)
-                       " SPD:" (math.max 10 (- tour.cooldown 5))) 30 79 11))
-          (print "NIVEAU MAX ATTEINT" 30 73 8)))
+                       " SPD:" (math.max 10 (- tour.cooldown 5))) 30 75 11))
+          (print "NIVEAU MAX ATTEINT" 30 69 8)))
 
-    ;; Option vendre : affiche le prix de rachat (50% du total investi)
+    ;; Option 1 : Tourner (seulement pour le canon)
     (let [sel (= shop-cursor 1)
+          col (if sel 12 13)]
+      (rectb 20 87 200 14 col)
+      (when sel (rect 21 88 198 12 1))
+      (if is-canon
+          (let [next-dir (. dir-noms (+ (% (+ tour.direction 1) 4) 1))]
+            (print (.. "TOURNER -> " next-dir) 30 90 col))
+          (print "-- non disponible --" 30 90 7)))
+
+    ;; Option 2 : Vendre
+    (let [sel (= shop-cursor 2)
           col (if sel 14 13)
           prix-vente (: tour :valeur-vente)]
-      (rectb 20 93 200 14 col)
-      (when sel (rect 21 94 198 12 1))
-      (print (.. "VENDRE  +$" prix-vente) 30 96 col))
+      (rectb 20 104 200 14 col)
+      (when sel (rect 21 105 198 12 1))
+      (print (.. "VENDRE  +$" prix-vente) 30 107 col))
 
-    ;; Option retour : ferme le menu sans rien faire
-    (let [sel (= shop-cursor 2)
+    ;; Option 3 : Retour
+    (let [sel (= shop-cursor 3)
           col (if sel 8 13)]
-      (rectb 20 112 200 14 col)
-      (when sel (rect 21 113 198 12 1))
-      (print "RETOUR" 30 115 col))
+      (rectb 20 121 200 14 col)
+      (when sel (rect 21 122 198 12 1))
+      (print "RETOUR" 30 124 col))
 
     (print "UP/DOWN: choisir  Z: confirmer" 30 130 13)))
 
-;; Gere les inputs dans l'ecran de gestion.
-;; Haut/bas deplace le curseur, Z confirme.
-;; Apres un upgrade, on reste dans le menu pour voir les nouvelles stats.
-;; Apres une vente, l'emplacement redevient disponible.
 (fn update-shop-gestion []
   (when (btnp 0) (set shop-cursor (math.max 0 (- shop-cursor 1))))
-  (when (btnp 1) (set shop-cursor (math.min 2 (+ shop-cursor 1))))
+  (when (btnp 1) (set shop-cursor (math.min 3 (+ shop-cursor 1))))
 
   (when (btnp 4)
     (if
-      ;; Ameliorer la tour si le niveau max n'est pas atteint
+      ;; Ameliorer
       (= shop-cursor 0)
       (let [tour shop-tour]
         (when (< tour.niveau MAX-NIVEAU)
@@ -525,14 +593,18 @@
                 (do
                   (set gold (- gold cout))
                   (: tour :ameliorer))
-                ;; Pas assez d'or pour l'upgrade
                 (do
                   (set message-flash "Pas assez d'or !")
                   (set message-timer 60)
                   (set shop-mode nil))))))
 
-      ;; Vendre la tour : recuperer 50% et liberer l'emplacement
+      ;; Tourner (seulement pour le canon)
       (= shop-cursor 1)
+      (when (= shop-tour.type :canon)
+        (: shop-tour :tourner))
+
+      ;; Vendre
+      (= shop-cursor 2)
       (let [tour shop-tour
             prix (: tour :valeur-vente)]
         (set gold (+ gold prix))
@@ -540,8 +612,8 @@
         (table.remove liste-tours shop-tour-idx)
         (set shop-mode nil))
 
-      ;; Retour au jeu sans modification
-      (= shop-cursor 2)
+      ;; Retour
+      (= shop-cursor 3)
       (set shop-mode nil))))
 
 ;; ============================================================
@@ -626,7 +698,7 @@
 ;; Appele au premier lancement et a chaque restart.
 (fn init-game []
   (set tick 0)
-  (set gold 100)
+  (set gold 1000)
   (set lives 10)
   (set wave 1)
   (set enemies [])
