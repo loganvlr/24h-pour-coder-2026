@@ -71,14 +71,31 @@
 ;; Reset des emplacements de tours
 (fn reset-emplacements []
   (set emplacements-tours
-    [ {:x 25  :y 45}
+     [
+  {:x 25  :y 45}
+
   {:x 73  :y 33}
+
   {:x 200 :y 32}
-  {:x 138 :y 56}
-  {:x 66  :y 82} 
+
+  {:x 120 :y 56}
+
+  {:x 152 :y 56} 
+
+  {:x 53  :y 82} 
+
+  {:x 77  :y 82} 
+
   {:x 140  :y 110} 
-  {:x 206  :y 80}
-  {:x 136  :y 25}]))
+
+  {:x 206  :y 71}
+
+  {:x 206  :y 88}
+
+  {:x 119  :y 24}
+
+  {:x 156  :y 24}
+]))
 
 ;; Classe ennemi
 (fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p path-p]
@@ -194,7 +211,7 @@
    :niveau 1
    :range 40
    :puissance 5
-   :sprite 256
+   :sprite 366
    :timer_tir 0
 
    :tirs (fn [self]
@@ -222,8 +239,8 @@
                 (set self.puissance (+ self.puissance 0.5)))
 
    :afficher (fn [self]
-               (spr self.sprite (- self.x 4) (- self.y 4) 0)
-               (print self.niveau (- self.x 2) (- self.y 12) 15))})
+               (spr self.sprite self.x self.y 0 1 0 0 2 2)
+               (print self.niveau (+ self.x 6) (- self.y 8) 15))})
 
 ;; Gestion des tours
 (fn spawn-tour [nom x y]
