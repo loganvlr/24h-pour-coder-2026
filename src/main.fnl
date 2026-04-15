@@ -178,6 +178,7 @@
                      dy (- cible-y self.y)
                      dist (math.sqrt (+ (* dx dx) (* dy dy)))]
                  (when (> dist 0)
+                   (if (> self.x cible-x) (set self.direction 0) (set self.direction 1))
                    (let [vx (/ dx dist)
                          vy (/ dy dist)
                          move (math.min self.vitesse dist)]
@@ -215,10 +216,20 @@
    ;; Dessine l'ennemi a l'ecran : son sprite centre sur sa position,
    ;; puis une barre de vie au-dessus (rouge = fond, vert = vie restante).
    :afficher (fn [self]
-               (let [x (math.floor self.x)
-                     y (math.floor self.y)]
-                 (spr self.sprite (- x 4) (- y 4) 0)
-                 (let [w 8
+                   (set self.timer-anim (+ (or self.timer-anim 0) 1))
+    (when (>= self.timer-anim 12) ; Change de sprite toutes les 15 frames
+      (set self.timer-anim 0)
+      (if (= self.etat 1) (set self.etat 2) (set self.etat 1)))
+
+    ;; 2. On prépare les coordonnées
+    (let [x (math.floor self.x)
+          y (math.floor self.y)
+          ;; On choisit le sprite selon l'état
+          sprite (if (= self.etat 1) 337 336)]
+          (if (= self.direction 0) (spr sprite (- x 4) (- y 4) 0 1 1) (spr sprite (- x 4) (- y 4) 0))
+
+          
+          (let [w 8
                        filled (math.ceil (* (/ self.pv self.max-pv) w))]
                    (rect (- x 4) (- y 7) w 2 2)
                    (rect (- x 4) (- y 7) filled 2 7))))})
@@ -619,6 +630,23 @@
     (set message-timer (- message-timer 1))
     (print message-flash 70 112 2)))
 
+
+;;Vagues
+(var numero_wave 1)
+(var nb_ennemis 0)
+
+(fn vague [numero]
+
+  (if (= numero 1)
+    (if (< nb_ennemis 15)
+      (when (and (= (% tick 30) 0) (< (length enemies) 100))
+      (set nb_ennemis (+ nb_ennemis 1))
+      (spawn-enemy (.. "basic" tick) 0.5 10 320))
+      )
+      (set numero_wave (+ numero_wave 1))
+  )
+)
+
 ;; ============================================================
 ;; INITIALISATION D'UNE NOUVELLE PARTIE
 ;; ============================================================
@@ -674,9 +702,8 @@
                     (do
                       ;; Spawn d'un ennemi toutes les 30 frames (0.5 sec)
                       ;; tant qu'il y a moins de 100 ennemis a l'ecran
-                      (when (and (= (% tick 30) 0) (< (length enemies) 100))
-                        (spawn-enemy (.. "basic" tick) 0.5 10 320))
 
+                      (vague 1)
                       (handle-click)
                       (update-enemies)
                       (update-tours)
