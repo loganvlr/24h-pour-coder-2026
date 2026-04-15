@@ -124,21 +124,38 @@
    :x x-p
    :y y-p
    :niveau 1
-   :range 40
+   :range 1000
    :puissance 1
    :sprite 1
-   :timer-tir 0
+   :timer_tir 0
 
    ;; Logique de détection et de tir
-    :tirs (fn [self]
+  :tirs (fn [self]
+  ;; 1. On remet l'état de cible à false et on incrémente le timer
+    (set self.timer_tir (+ self.timer_tir 1))
+
+    ;; 2. Si le timer atteint 3
+    (if (>= self.timer_tir 1)
       (each [_ enemy (ipairs enemies)]
         (let [dx (- enemy.x self.x)
               dy (- enemy.y self.y)
               distance-au-carre (+ (* dx dx) (* dy dy))
               portee-au-carre (* self.range self.range)]
           
+          ;; 3. Si l'ennemi est à portée
           (if (<= distance-au-carre portee-au-carre)
-              (: enemy :prendre-degats 1)))))
+              (do
+                ;; On réinitialise le timer de la tour
+                (set self.timer_tir 0)
+                ;; On inflige les dégâts
+                (: enemy :prendre-degats self.puissance)
+                ;; On marque qu'on a trouvé une cible
+                (set self.cibles true)
+                ;; On arrête la boucle pour ne pas toucher les autres
+                (lua "break"))))))
+
+  )
+
 
    ;; Amélioration de la tour
    :ameliorer (fn [self]
@@ -168,6 +185,22 @@
     (: t :afficher)))
 
 
+(fn place-tour [x y l]
+  (let [(mx my clic-gauche) (mouse)]
+  
+    ;; On vérifie si la souris est dans le carré ET si on clique
+    (if (and clic-gauche
+             (>= mx x)
+             (<= mx (+ x l))
+             (>= my y)
+             (<= my (+ y l))) ; Note: L'axe Y va vers le bas, donc on additionne la taille 'l'
+             
+        (do
+          (when (>= gold 50)
+            (set gold (- gold 50))
+            ;; 2. On utilise 'spawn-tour' pour que la tour soit ajoutée à la liste du jeu
+            (spawn-tour "Tour Base" mx my))))))
+
 ;; INIT
 (fn init-game []
   (set tick 0)
@@ -176,7 +209,6 @@
   (set wave 1)
   (set enemies [])
   (spawn-enemy "basic1" 1 100 1)
-  (spawn-tour "tour1" 100 100)
 
   (set state :playing))
 
@@ -194,6 +226,7 @@
                 (when (btnp 4) (init-game)))
 
     :playing  (do
+                (place-tour 0 0 400)
                 (update-enemies)
                 (update-tours)
                 (when (<= lives 0) (set state :gameover))
