@@ -8,9 +8,9 @@
 ;; strict:  true
 
 ;; CONSTANTES
-(local SCREEN-W 240)
-(local SCREEN-H 136)
-(local TILE-SIZE 8)
+(local SCREEN-W 224)
+(local SCREEN-H 112)
+(local TILE-SIZE 16)
 
 ;; Chemin des ennemis
 (local path [{:x 0 :y 64}
@@ -21,7 +21,7 @@
              {:x 192 :y 96}])
 
 ;; ÉTAT DU JEU
-(var state :menu)
+(var state :menu) ; :menu, :playing, :gameover, :victory
 (var tick 0)
 (var gold 100)
 (var lives 10)
@@ -74,19 +74,19 @@
 
 ;; DRAW — écrans
 (fn draw-menu []
-  (print "TOWER DEFENSE" 75 40 12 true 2)
-  (print "Press Z to Start" 72 70 15)
-  (print "by Logan" 88 90 13))
+  (print "TOWER DEFENSE" 40 40 12 true 2)
+  (print "Appuyez sur Z pour commencer" 38 70 15)
+  (print "par Victor, Thomas, Samy et Logan" 30 90 13))
 
 (fn draw-gameover []
-  (print "GAME OVER" 80 50 2 true 2)
-  (print (.. "Wave: " wave) 95 75 15)
-  (print "Press Z to Retry" 68 90 12))
+  (print "GAME OVER" 65 50 2 true 2)
+  (print (.. "Wave: " wave) 100 75 15)
+  (print "Appuyez sur Z pour réessayer" 40 90 12))
 
 (fn draw-victory []
-  (print "VICTORY!" 82 50 6 true 2)
-  (print "All waves cleared!" 68 75 15)
-  (print "Press Z to Replay" 66 90 12))
+  (print "VICTORY!" 70 50 6 true 2)
+  (print "Toutes les vagues sont finies !" 37 75 15)
+  (print "Appuyez sur Z pour rejouer" 45 90 12))
 
 (fn draw-ui []
   (rect 0 0 SCREEN-W 8 0)
@@ -184,7 +184,7 @@
 (fn _G.TIC []
   (set tick (+ tick 1))
 
-  (when (and (= state :playing) (= (% tick 60) 0) (< (length enemies) 5))
+  (when (and (= state :playing) (= (% tick 30) 0) (< (length enemies) 5))
     (spawn-enemy (.. "basic" tick) 1 100 1))
 
   (match state
