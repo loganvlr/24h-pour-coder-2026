@@ -13,12 +13,26 @@
 (local TILE-SIZE 16)
 
 ;; Chemin des ennemis
-(local path [{:x 0 :y 64}
-             {:x 48 :y 64}
-             {:x 48 :y 32}
-             {:x 112 :y 32}
-             {:x 112 :y 96}
-             {:x 192 :y 96}])
+(local path [{:x 5 :y 15}
+             {:x 233 :y 15}
+             {:x 233 :y 62}
+             {:x 190 :y 62}
+             {:x 185 :y 78}
+             {:x 107 :y 78}
+             {:x 99 :y 64}
+             {:x 58 :y 62}
+             {:x 55 :y 31}
+             {:x 9 :y 32}
+             {:x 10 :y 80}
+             {:x 39 :y 80}
+             {:x 39 :y 95}
+             {:x 9 :y 96}
+             {:x 8 :y 110}
+             {:x 117 :y 112}
+             {:x 119 :y 96}
+             {:x 173 :y 96}
+             {:x 176 :y 111}
+             {:x 236 :y 111}])
 
 ;; ÉTAT DU JEU
 (var state :menu) ; :menu, :playing, :gameover, :victory
@@ -172,10 +186,10 @@
 (fn init-game []
   (set tick 0)
   (set gold 100)
-  (set lives 10)
+  (set lives 1000)
   (set wave 1)
   (set enemies [])
-  (spawn-enemy "basic1" 1 100 1)
+  (spawn-enemy "basic1" 1 100 320)
   (spawn-tour "tour1" 100 100)
 
   (set state :playing))
@@ -185,7 +199,9 @@
   (set tick (+ tick 1))
 
   (when (and (= state :playing) (= (% tick 30) 0) (< (length enemies) 5))
-    (spawn-enemy (.. "basic" tick) 1 100 1))
+    (spawn-enemy (.. "basic" tick) 1 1000 320))
+
+
 
   (match state
     :menu     (do
@@ -201,7 +217,10 @@
                 (map 0 0 30 17)
                 (draw-enemies)
                 (draw-tours)
-                (draw-ui))
+                (draw-ui)
+                (let [(mx my pressed) (mouse)]
+                  (print (.. "x:" mx) 170 1 15)
+                  (print (.. "y:" my) 205 1 15)))
 
     :gameover (do
                 (cls 0)
