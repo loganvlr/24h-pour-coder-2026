@@ -3,8 +3,8 @@
 ;; desc:   Template de base pour le 24h pour coder 2026
 ;; script: fennel
 
-(var couleur-texte 0)  ; 6 = vert. Essaie 11 (bleu clair)
-(var couleur-fond 12)  ; 12 = Blanc. Essaie 0 (Noir)
+(var couleur-texte 6)  ; 6 = vert. Essaie 11 (bleu clair)
+(var couleur-fond 0)  ; 12 = Blanc. Essaie 0 (Noir)
 
 ;; Variable pour l'animation
 (var t 0)
