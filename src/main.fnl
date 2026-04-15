@@ -20,6 +20,18 @@
              {:x 112 :y 96}
              {:x 192 :y 96}])
 
+(global emplacements-tours [
+  {:x 20  :y 25}  ; Début du chemin (segment haut)
+  {:x 120 :y 5}   ; Milieu du long segment horizontal haut
+  {:x 220 :y 30}  ; Près du premier grand virage à droite
+  {:x 210 :y 75}  ; Dans le creux du virage à 185, 78
+  {:x 150 :y 68}  ; Le long du segment central
+  {:x 75  :y 45}  ; Près de la remontée à x=55
+  {:x 25  :y 70}  ; Dans la boucle à gauche (zone x=10)
+  {:x 80  :y 122} ; Le long du grand segment horizontal bas
+  {:x 150 :y 105} ; Avant le dernier virage
+  {:x 210 :y 125} ; Proche de la fin du niveau
+])
 ;; ÉTAT DU JEU
 (var state :menu) ; :menu, :playing, :gameover, :victory
 (var tick 0)
@@ -28,6 +40,8 @@
 (var wave 0)
 (var enemies [])
 (var liste-tours [])
+(var nb_click 1)
+
 
 ;; Classe ennemi
 (fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p]
@@ -135,24 +149,27 @@
     (set self.timer_tir (+ self.timer_tir 1))
 
     ;; 2. Si le timer atteint 3
-    (if (>= self.timer_tir 1)
-      (each [_ enemy (ipairs enemies)]
-        (let [dx (- enemy.x self.x)
-              dy (- enemy.y self.y)
-              distance-au-carre (+ (* dx dx) (* dy dy))
-              portee-au-carre (* self.range self.range)]
+:tirs (fn [self]
+    ;; 1. On incrémente le timer
+    (set self.timer_tir (+ self.timer_tir 1))
+
+    ;; 2. On ne cherche une cible QUE si le timer est prêt (ex: >= 30 frames)
+    (if (>= self.timer_tir 30)
+        (do
+          ;; On utilise une variable locale pour la recherche
+          (var cible-trouvee? false)
           
-          ;; 3. Si l'ennemi est à portée
-          (if (<= distance-au-carre portee-au-carre)
-              (do
-                ;; On réinitialise le timer de la tour
+          (each [_ enemy (ipairs enemies) &until cible-trouvee?] 
+            (let [dx (- enemy.x self.x)
+                  dy (- enemy.y self.y)
+                  dist-sq (+ (* dx dx) (* dy dy))
+                  range-sq (* self.range self.range)]
+              
+              (when (<= dist-sq range-sq)
+                (set cible-trouvee? true)
                 (set self.timer_tir 0)
-                ;; On inflige les dégâts
                 (: enemy :prendre-degats self.puissance)
-                ;; On marque qu'on a trouvé une cible
-                (set self.cibles true)
-                ;; On arrête la boucle pour ne pas toucher les autres
-                (lua "break"))))))
+                (set self.cibles true)))))))
 
   )
 
@@ -185,21 +202,33 @@
     (: t :afficher)))
 
 
-(fn place-tour [x y l]
-  (let [(mx my clic-gauche) (mouse)]
-  
-    ;; On vérifie si la souris est dans le carré ET si on clique
-    (if (and clic-gauche
-             (>= mx x)
-             (<= mx (+ x l))
-             (>= my y)
-             (<= my (+ y l))) ; Note: L'axe Y va vers le bas, donc on additionne la taille 'l'
-             
+
+
+(fn place-tour [emplacements l]
+  (let [(mx my clic) (mouse)]
+    (if (and clic (= nb_click 1))
         (do
-          (when (>= gold 50)
-            (set gold (- gold 50))
-            ;; 2. On utilise 'spawn-tour' pour que la tour soit ajoutée à la liste du jeu
-            (spawn-tour "Tour Base" mx my))))))
+          (set nb_click 0) ; On bloque le clic unique
+          (var a-supprimer nil) ; On va stocker l'index à supprimer ici
+
+          (each [i empla (ipairs emplacements) &until a-supprimer]
+            (when (and (>= mx empla.x) (<= mx (+ empla.x l))
+                       (>= my empla.y) (<= my (+ empla.y l)))
+              (if (>= gold 50)
+                  (do
+                    (set gold (- gold 50))
+                    (spawn-tour "Tour Base" empla.x empla.y)
+                    (set a-supprimer i)) ; On a trouvé, on stocke l'index
+                  (print "Pas assez d'or" mx (- my 10) 6))))
+
+          ;; Si on a trouvé un emplacement valide, on le retire de la liste
+          (when a-supprimer
+            (table.remove emplacements a-supprimer)))
+
+        ;; Reset du clic quand on relâche
+        (not clic)
+        (set nb_click 1))))
+
 
 ;; INIT
 (fn init-game []
@@ -226,7 +255,7 @@
                 (when (btnp 4) (init-game)))
 
     :playing  (do
-                (place-tour 0 0 400)
+                (place-tour emplacements-tours 16)
                 (update-enemies)
                 (update-tours)
                 (when (<= lives 0) (set state :gameover))
