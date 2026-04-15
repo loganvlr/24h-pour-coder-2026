@@ -192,8 +192,8 @@
    :x x-p
    :y y-p
    :niveau 1
-   :range 30
-   :puissance 1
+   :range 40
+   :puissance 5
    :sprite 256
    :timer_tir 0
 
