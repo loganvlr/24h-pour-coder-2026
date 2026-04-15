@@ -7,70 +7,79 @@
 ;; script:  fennel
 ;; strict:  true
 
-;; Classe ennemi
-(fn creer_ennemi [nom-p x-p y-p chemin-p]
-  {
-   :nom nom-p
-   :x x-p
-   :y y-p
-   :vitesse 1
-   :index-chemin 1 ; En Lua/Fennel, on commence à 1
-   :pv 100
-   :chemin chemin-p
-
-   :deplacer (fn [self cible-x cible-y]
-               (if (< self.x cible-x) (set self.x (+ self.x self.vitesse))
-                   (> self.x cible-x) (set self.x (- self.x self.vitesse)))
-               (if (< self.y cible-y) (set self.y (+ self.y self.vitesse))
-                   (> self.y cible-y) (set self.y (- self.y self.vitesse))))
-
-   :prendre-degats (fn [self montant]
-                     (set self.pv (- self.pv montant)))
-
-   ;; Méthode pour suivre le chemin
-:suivre-chemin (fn [self]
-                 (let [cible (. self.chemin self.index-chemin)]
-                   (when cible
-                     ;; 1. On se déplace vers la cible
-                     (: self :deplacer cible.x cible.y)
-
-                     ;; 2. Si on est arrivé au waypoint
-                     (when (and (= self.x cible.x) (= self.y cible.y))
-                       (if (= self.index-chemin (length self.chemin))
-                           ;; Si c'est le dernier point -> Arrivée
-                           (: self :arrivee) 
-                           ;; Sinon -> On passe au suivant
-                           (set self.index-chemin (+ self.index-chemin 1)))))))
-
-    :arrivee (fn [self]
-        (print "Quincieu zgeg")
-    )
-
-    :afficher (fn [self]
-                ; spr dessine un sprite. Ici, on imagine que le sprite de base est le numéro 1
-                (spr 1 self.x self.y 0))  
-   })
-
 ;; CONSTANTES
-
 (local SCREEN-W 240)
 (local SCREEN-H 136)
 (local TILE-SIZE 8)
 
-;; ÉTAT DU JEU
+;; Chemin des ennemis
+(local path [{:x 0 :y 64}
+             {:x 48 :y 64}
+             {:x 48 :y 32}
+             {:x 112 :y 32}
+             {:x 112 :y 96}
+             {:x 192 :y 96}])
 
+;; ÉTAT DU JEU
 (var state :menu)
 (var tick 0)
+(var gold 100)
+(var lives 10)
+(var wave 0)
+(var enemies [])
+
+;; Classe ennemi
+(fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p]
+  {:nom nom-p
+   :x x-p
+   :y y-p
+   :vitesse vitesse-p
+   :index-chemin 1
+   :pv pv-p
+   :max-pv pv-p
+   :sprite sprite-p
+   :alive true
+
+   :deplacer (fn [self cible-x cible-y]
+               (if (< self.x cible-x) (set self.x (math.min (+ self.x self.vitesse) cible-x))
+                   (> self.x cible-x) (set self.x (math.max (- self.x self.vitesse) cible-x)))
+               (if (< self.y cible-y) (set self.y (math.min (+ self.y self.vitesse) cible-y))
+                   (> self.y cible-y) (set self.y (math.max (- self.y self.vitesse) cible-y))))
+
+   :prendre-degats (fn [self montant]
+                     (set self.pv (- self.pv montant))
+                     (when (<= self.pv 0)
+                       (set self.alive false)))
+
+   :suivre-chemin (fn [self]
+                    (let [cible (. path self.index-chemin)]
+                      (when cible
+                        (: self :deplacer cible.x cible.y)
+                        (when (and (= self.x cible.x) (= self.y cible.y))
+                          (if (= self.index-chemin (length path))
+                              (: self :arrivee)
+                              (set self.index-chemin (+ self.index-chemin 1)))))))
+
+   :arrivee (fn [self]
+              (set self.alive false)
+              (set lives (- lives 1)))
+
+   :afficher (fn [self]
+               (spr self.sprite (- self.x 4) (- self.y 4) 0)
+               (let [w 8
+                     filled (math.ceil (* (/ self.pv self.max-pv) w))]
+                 (rect (- self.x 4) (- self.y 7) w 2 2)
+                 (rect (- self.x 4) (- self.y 7) filled 2 6)))})
 
 ;; DRAW — écrans
-
 (fn draw-menu []
-  (print "TOWER DEFENSE - Test Samy" 75 40 12 true 2)
+  (print "TOWER DEFENSE" 75 40 12 true 2)
   (print "Press Z to Start" 72 70 15)
   (print "by Logan" 88 90 13))
 
 (fn draw-gameover []
   (print "GAME OVER" 80 50 2 true 2)
+  (print (.. "Wave: " wave) 95 75 15)
   (print "Press Z to Retry" 68 90 12))
 
 (fn draw-victory []
@@ -78,26 +87,49 @@
   (print "All waves cleared!" 68 75 15)
   (print "Press Z to Replay" 66 90 12))
 
-;; INIT
+(fn draw-ui []
+  (rect 0 0 SCREEN-W 8 0)
+  (print (.. "Gold:" gold) 2 1 14)
+  (print (.. "Lives:" lives) 60 1 8)
+  (print (.. "Wave:" wave) 120 1 12))
 
+;; ENEMIES — gestion de la liste
+(fn spawn-enemy [nom vitesse pv sprite]
+  (let [start (. path 1)]
+    (table.insert enemies (creer-ennemi nom start.x start.y vitesse pv sprite))))
+
+(fn update-enemies []
+  (each [_ enemy (ipairs enemies)]
+    (when enemy.alive
+      (: enemy :suivre-chemin)))
+  (for [i (length enemies) 1 -1]
+    (let [enemy (. enemies i)]
+      (when (not enemy.alive)
+        (when (<= enemy.pv 0)
+          (set gold (+ gold 10)))
+        (table.remove enemies i)))))
+
+(fn draw-enemies []
+  (each [_ enemy (ipairs enemies)]
+    (when enemy.alive
+      (: enemy :afficher))))
+
+;; INIT
 (fn init-game []
   (set tick 0)
+  (set gold 100)
+  (set lives 10)
+  (set wave 1)
+  (set enemies [])
+  (spawn-enemy "basic1" 1 100 1)
   (set state :playing))
-  ;; Change to :playing when game logic is implemented
-
-(global path [{:x 0 :y 64}
-                {:x 48 :y 64}
-                {:x 48 :y 32}
-                {:x 112 :y 32}
-                {:x 112 :y 96}
-                {:x 192 :y 96}])
-;; DECLAS ENNEMIS
-(global ennemi (creer_ennemi "test" 60 60 path))
 
 ;; BOUCLE PRINCIPALE
-
 (fn _G.TIC []
   (set tick (+ tick 1))
+
+  (when (and (= state :playing) (= (% tick 60) 0) (< (length enemies) 5))
+    (spawn-enemy (.. "basic" tick) 1 100 1))
 
   (match state
     :menu     (do
@@ -106,11 +138,12 @@
                 (when (btnp 4) (init-game)))
 
     :playing  (do
+                (update-enemies)
+                (when (<= lives 0) (set state :gameover))
                 (cls 0)
-                ; 1. On ajoute les ":" devant afficher
-                (: ennemi :afficher)
-                
-                (: ennemi :suivre-chemin))
+                (map 0 0 30 17)
+                (draw-enemies)
+                (draw-ui))
 
     :gameover (do
                 (cls 0)
