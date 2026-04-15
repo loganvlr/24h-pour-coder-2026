@@ -13,12 +13,33 @@
 (local TILE-SIZE 16)
 
 ;; Chemin des ennemis
-(local path [{:x 5 :y 15}
+(local path1 [{:x 5 :y 15}
              {:x 233 :y 15}
              {:x 233 :y 62}
              {:x 190 :y 62}
              {:x 185 :y 78}
              {:x 107 :y 78}
+             {:x 99 :y 64}
+             {:x 58 :y 62}
+             {:x 55 :y 31}
+             {:x 9 :y 32}
+             {:x 10 :y 80}
+             {:x 39 :y 80}
+             {:x 39 :y 95}
+             {:x 9 :y 96}
+             {:x 8 :y 110}
+             {:x 117 :y 112}
+             {:x 119 :y 96}
+             {:x 173 :y 96}
+             {:x 176 :y 111}
+             {:x 236 :y 111}])
+
+(local path2 [{:x 5 :y 15}
+             {:x 233 :y 15}
+             {:x 233 :y 62}
+             {:x 190 :y 62}
+             {:x 185 :y 45}
+             {:x 107 :y 45}
              {:x 99 :y 64}
              {:x 58 :y 62}
              {:x 55 :y 31}
@@ -42,9 +63,10 @@
 (var wave 0)
 (var enemies [])
 (var liste-tours [])
+(var toggle-path true)
 
 ;; Classe ennemi
-(fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p]
+(fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p path-p]
   {:nom nom-p
    :x x-p
    :y y-p
@@ -54,6 +76,7 @@
    :max-pv pv-p
    :sprite sprite-p
    :alive true
+   :path path-p
 
    :deplacer (fn [self cible-x cible-y]
                (if (< self.x cible-x) (set self.x (math.min (+ self.x self.vitesse) cible-x))
@@ -67,11 +90,11 @@
                        (set self.alive false)))
 
    :suivre-chemin (fn [self]
-                    (let [cible (. path self.index-chemin)]
+                    (let [cible (. self.path self.index-chemin)]
                       (when cible
                         (: self :deplacer cible.x cible.y)
                         (when (and (= self.x cible.x) (= self.y cible.y))
-                          (if (= self.index-chemin (length path))
+                          (if (= self.index-chemin (length self.path))
                               (: self :arrivee)
                               (set self.index-chemin (+ self.index-chemin 1)))))))
 
@@ -84,7 +107,7 @@
                (let [w 8
                      filled (math.ceil (* (/ self.pv self.max-pv) w))]
                  (rect (- self.x 4) (- self.y 7) w 2 2)
-                 (rect (- self.x 4) (- self.y 7) filled 2 6)))})
+                 (rect (- self.x 4) (- self.y 7) filled 2 7)))})
 
 ;; DRAW — écrans
 (fn draw-menu []
@@ -110,8 +133,14 @@
 
 ;; ENEMIES — gestion de la liste
 (fn spawn-enemy [nom vitesse pv sprite]
-  (let [start (. path 1)]
-    (table.insert enemies (creer-ennemi nom start.x start.y vitesse pv sprite))))
+  (let [chosen-path (if (< (math.random) 0.5) path1 path2)
+        start (. chosen-path 1)]
+    
+    (table.insert enemies
+      (creer-ennemi nom start.x start.y vitesse pv sprite chosen-path))
+
+    ;; alterner pour le prochain ennemi
+    (set toggle-path (not toggle-path))))
 
 (fn update-enemies []
   (each [_ enemy (ipairs enemies)]
@@ -198,7 +227,7 @@
 (fn _G.TIC []
   (set tick (+ tick 1))
 
-  (when (and (= state :playing) (= (% tick 30) 0) (< (length enemies) 5))
+  (when (and (= state :playing) (= (% tick 30) 0) (< (length enemies) 100))
     (spawn-enemy (.. "basic" tick) 1 1000 320))
 
 
