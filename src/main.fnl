@@ -55,29 +55,30 @@
              {:x 176 :y 111}
              {:x 236 :y 111}])
 
-(global emplacements-tours [
-  {:x 20  :y 25}  ; Début du chemin (segment haut)
-  {:x 120 :y 5}   ; Milieu du long segment horizontal haut
-  {:x 220 :y 30}  ; Près du premier grand virage à droite
-  {:x 210 :y 75}  ; Dans le creux du virage à 185, 78
-  {:x 150 :y 68}  ; Le long du segment central
-  {:x 75  :y 45}  ; Près de la remontée à x=55
-  {:x 25  :y 70}  ; Dans la boucle à gauche (zone x=10)
-  {:x 80  :y 122} ; Le long du grand segment horizontal bas
-  {:x 150 :y 105} ; Avant le dernier virage
-  {:x 210 :y 125} ; Proche de la fin du niveau
-])
 ;; ÉTAT DU JEU
-(var state :menu) ; :menu, :playing, :gameover, :victory
+(var state :menu)
 (var tick 0)
 (var gold 100)
 (var lives 10)
 (var wave 0)
 (var enemies [])
 (var liste-tours [])
-(var toggle-path true)
 (var nb_click 1)
+(var emplacements-tours [])
+(var message-flash nil)
+(var message-timer 0)
 
+;; Reset des emplacements de tours
+(fn reset-emplacements []
+  (set emplacements-tours
+    [ {:x 25  :y 45}
+  {:x 73  :y 33}
+  {:x 200 :y 32}
+  {:x 138 :y 56}
+  {:x 66  :y 82} 
+  {:x 140  :y 110} 
+  {:x 206  :y 80}
+  {:x 136  :y 25}]))
 
 ;; Classe ennemi
 (fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p path-p]
@@ -93,10 +94,15 @@
    :path path-p
 
    :deplacer (fn [self cible-x cible-y]
-               (if (< self.x cible-x) (set self.x (math.min (+ self.x self.vitesse) cible-x))
-                   (> self.x cible-x) (set self.x (math.max (- self.x self.vitesse) cible-x)))
-               (if (< self.y cible-y) (set self.y (math.min (+ self.y self.vitesse) cible-y))
-                   (> self.y cible-y) (set self.y (math.max (- self.y self.vitesse) cible-y))))
+               (let [dx (- cible-x self.x)
+                     dy (- cible-y self.y)
+                     dist (math.sqrt (+ (* dx dx) (* dy dy)))]
+                 (when (> dist 0)
+                   (let [vx (/ dx dist)
+                         vy (/ dy dist)
+                         move (math.min self.vitesse dist)]
+                     (set self.x (+ self.x (* vx move)))
+                     (set self.y (+ self.y (* vy move)))))))
 
    :prendre-degats (fn [self montant]
                      (set self.pv (- self.pv montant))
@@ -107,7 +113,8 @@
                     (let [cible (. self.path self.index-chemin)]
                       (when cible
                         (: self :deplacer cible.x cible.y)
-                        (when (and (= self.x cible.x) (= self.y cible.y))
+                        (when (and (= (math.floor self.x) cible.x)
+                                   (= (math.floor self.y) cible.y))
                           (if (= self.index-chemin (length self.path))
                               (: self :arrivee)
                               (set self.index-chemin (+ self.index-chemin 1)))))))
@@ -117,11 +124,13 @@
               (set lives (- lives 1)))
 
    :afficher (fn [self]
-               (spr self.sprite (- self.x 4) (- self.y 4) 0)
-               (let [w 8
-                     filled (math.ceil (* (/ self.pv self.max-pv) w))]
-                 (rect (- self.x 4) (- self.y 7) w 2 2)
-                 (rect (- self.x 4) (- self.y 7) filled 2 7)))})
+               (let [x (math.floor self.x)
+                     y (math.floor self.y)]
+                 (spr self.sprite (- x 4) (- y 4) 0)
+                 (let [w 8
+                       filled (math.ceil (* (/ self.pv self.max-pv) w))]
+                   (rect (- x 4) (- y 7) w 2 2)
+                   (rect (- x 4) (- y 7) filled 2 7))))})
 
 ;; DRAW — écrans
 (fn draw-menu []
@@ -143,24 +152,28 @@
   (rect 0 0 SCREEN-W 8 0)
   (print (.. "Gold:" gold) 2 1 14)
   (print (.. "Lives:" lives) 60 1 8)
-  (print (.. "Wave:" wave) 120 1 12))
+  (print (.. "Wave:" wave) 120 1 12)
+  ;; Message flash
+  (when (> message-timer 0)
+    (set message-timer (- message-timer 1))
+    (print message-flash 80 120 2)))
+
+;; Indicateur visuel des emplacements disponibles
+(fn draw-emplacements []
+  (each [_ empla (ipairs emplacements-tours)]
+    (rectb empla.x empla.y 16 16 13)))
 
 ;; ENEMIES — gestion de la liste
 (fn spawn-enemy [nom vitesse pv sprite]
   (let [chosen-path (if (< (math.random) 0.5) path1 path2)
         start (. chosen-path 1)]
-    
     (table.insert enemies
-      (creer-ennemi nom start.x start.y vitesse pv sprite chosen-path))
-
-    ;; alterner pour le prochain ennemi
-    (set toggle-path (not toggle-path))))
+      (creer-ennemi nom start.x start.y vitesse pv sprite chosen-path))))
 
 (fn update-enemies []
   (each [_ enemy (ipairs enemies)]
     (when enemy.alive
-      (: enemy :suivre-chemin))
-      )
+      (: enemy :suivre-chemin)))
   (for [i (length enemies) 1 -1]
     (let [enemy (. enemies i)]
       (when (not enemy.alive)
@@ -174,65 +187,45 @@
       (: enemy :afficher))))
 
 ;; Tours
-;; --- LE CONSTRUCTEUR DE TOUR ---
 (fn creer-tour [nom-p x-p y-p]
-  {
-   :nom nom-p
+  {:nom nom-p
    :x x-p
    :y y-p
    :niveau 1
-   :range 1000
+   :range 30
    :puissance 1
-   :sprite 1
+   :sprite 256
    :timer_tir 0
 
-   ;; Logique de détection et de tir
-  :tirs (fn [self]
-  ;; 1. On remet l'état de cible à false et on incrémente le timer
-    (set self.timer_tir (+ self.timer_tir 1))
+   :tirs (fn [self]
+           (set self.timer_tir (+ self.timer_tir 1))
+           (when (>= self.timer_tir 30)
+             (var best nil)
+             (var best-waypoint 0)
+             (each [_ enemy (ipairs enemies)]
+               (when (and enemy.alive (> enemy.pv 0))
+                 (let [dx (- enemy.x self.x)
+                       dy (- enemy.y self.y)
+                       dist-sq (+ (* dx dx) (* dy dy))
+                       range-sq (* self.range self.range)]
+                   (when (and (<= dist-sq range-sq)
+                              (>= enemy.index-chemin best-waypoint))
+                     (set best enemy)
+                     (set best-waypoint enemy.index-chemin)))))
+             (when best
+               (set self.timer_tir 0)
+               (: best :prendre-degats self.puissance))))
 
-    ;; 2. Si le timer atteint 3
-:tirs (fn [self]
-    ;; 1. On incrémente le timer
-    (set self.timer_tir (+ self.timer_tir 1))
-
-    ;; 2. On ne cherche une cible QUE si le timer est prêt (ex: >= 30 frames)
-    (if (>= self.timer_tir 30)
-        (do
-          ;; On utilise une variable locale pour la recherche
-          (var cible-trouvee? false)
-          
-          (each [_ enemy (ipairs enemies) &until cible-trouvee?] 
-            (let [dx (- enemy.x self.x)
-                  dy (- enemy.y self.y)
-                  dist-sq (+ (* dx dx) (* dy dy))
-                  range-sq (* self.range self.range)]
-              
-              (when (<= dist-sq range-sq)
-                (set cible-trouvee? true)
-                (set self.timer_tir 0)
-                (: enemy :prendre-degats self.puissance)
-                (set self.cibles true)))))))
-
-  )
-
-
-   ;; Amélioration de la tour
    :ameliorer (fn [self]
                 (set self.niveau (+ self.niveau 1))
                 (set self.range (+ self.range 10))
                 (set self.puissance (+ self.puissance 0.5)))
 
-   ;; Affichage graphique
    :afficher (fn [self]
-               ;; Dessine la tour
                (spr self.sprite (- self.x 4) (- self.y 4) 0)
-               ;; Affiche le niveau au-dessus
-               (print self.niveau (- self.x 2) (- self.y 12) 15))
-  })
+               (print self.niveau (- self.x 2) (- self.y 12) 15))})
 
-;; --- FONCTIONS DE GESTION ---
-
+;; Gestion des tours
 (fn spawn-tour [nom x y]
   (table.insert liste-tours (creer-tour nom x y)))
 
@@ -244,15 +237,12 @@
   (each [_ t (ipairs liste-tours)]
     (: t :afficher)))
 
-
-
-
 (fn place-tour [emplacements l]
   (let [(mx my clic) (mouse)]
     (if (and clic (= nb_click 1))
         (do
-          (set nb_click 0) ; On bloque le clic unique
-          (var a-supprimer nil) ; On va stocker l'index à supprimer ici
+          (set nb_click 0)
+          (var a-supprimer nil)
 
           (each [i empla (ipairs emplacements) &until a-supprimer]
             (when (and (>= mx empla.x) (<= mx (+ empla.x l))
@@ -261,27 +251,29 @@
                   (do
                     (set gold (- gold 50))
                     (spawn-tour "Tour Base" empla.x empla.y)
-                    (set a-supprimer i)) ; On a trouvé, on stocke l'index
-                  (print "Pas assez d'or" mx (- my 10) 6))))
+                    (set a-supprimer i))
+                  (do
+                    (set message-flash "Pas assez d'or !")
+                    (set message-timer 60)))))
 
-          ;; Si on a trouvé un emplacement valide, on le retire de la liste
           (when a-supprimer
             (table.remove emplacements a-supprimer)))
 
-        ;; Reset du clic quand on relâche
-        (not clic)
-        (set nb_click 1))))
-
+        (when (not clic)
+          (set nb_click 1)))))
 
 ;; INIT
 (fn init-game []
   (set tick 0)
   (set gold 100)
-  (set lives 1000)
+  (set lives 10)
   (set wave 1)
   (set enemies [])
-  (spawn-enemy "basic1" 1 100 1)
-
+  (set liste-tours [])
+  (set nb_click 1)
+  (set message-flash nil)
+  (set message-timer 0)
+  (reset-emplacements)
   (set state :playing))
 
 ;; BOUCLE PRINCIPALE
@@ -289,9 +281,7 @@
   (set tick (+ tick 1))
 
   (when (and (= state :playing) (= (% tick 30) 0) (< (length enemies) 100))
-    (spawn-enemy (.. "basic" tick) 1 1000 320))
-
-
+    (spawn-enemy (.. "basic" tick) 0.5 10 320))
 
   (match state
     :menu     (do
@@ -306,6 +296,7 @@
                 (when (<= lives 0) (set state :gameover))
                 (cls 0)
                 (map 0 0 30 17)
+                (draw-emplacements)
                 (draw-enemies)
                 (draw-tours)
                 (draw-ui)
