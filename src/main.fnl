@@ -1,24 +1,68 @@
-;; title:  Template de base
-;; author: Quentin
-;; desc:   Template de base pour le 24h pour coder 2026
-;; script: fennel
+;; title:   Tower Defense
+;; author:  Logan
+;; desc:    Tower Defense game
+;; site:    
+;; license: MIT License
+;; version: 0.1
+;; script:  fennel
+;; strict:  true
 
-(var couleur-texte 0)  ; 6 = vert. Essaie 11 (bleu clair)
-(var couleur-fond 12)  ; 12 = Blanc. Essaie 0 (Noir)
 
-;; Variable pour l'animation
-(var t 0)
+;; CONSTANTES
 
-;; Boucle principale exécutée à 60 FPS
+(local SCREEN-W 240)
+(local SCREEN-H 136)
+(local TILE-SIZE 8)
+
+;; ÉTAT DU JEU
+
+(var state :menu)
+(var tick 0)
+
+;; DRAW — écrans
+
+(fn draw-menu []
+  (print "TOWER DEFENSE" 75 40 12 true 2)
+  (print "Press Z to Start" 72 70 15)
+  (print "by Logan" 88 90 13))
+
+(fn draw-gameover []
+  (print "GAME OVER" 80 50 2 true 2)
+  (print "Press Z to Retry" 68 90 12))
+
+(fn draw-victory []
+  (print "VICTORY!" 82 50 6 true 2)
+  (print "All waves cleared!" 68 75 15)
+  (print "Press Z to Replay" 66 90 12))
+
+;; INIT
+
+(fn init-game []
+  (set tick 0)
+  (set state :gameover));; Change to :playing when game logic is implemented
+
+;; BOUCLE PRINCIPALE
+
 (fn _G.TIC []
-  ;; 1. Nettoie l'écran
-  (cls couleur-fond)
-  
-  ;; 2. Calcule un petit mouvement de vague
-  (var decalage-y (* (math.sin t) 5))
-  
-  ;; 3. Affiche le texte au centre avec l'effet de vague
-  (print "WORKFLOW OPERATIONNEL !" 45 (+ 64 decalage-y) couleur-texte)
-  
-  ;; 4. Fait avancer le temps
-  (set t (+ t 0.1)))
+  (set tick (+ tick 1))
+
+  (match state
+    :menu     (do
+                (cls 0)
+                (draw-menu)
+                (when (btnp 4) (init-game)))
+
+    :playing  (do
+                (cls 0)
+                (print "Game is running..." 70 60 15)
+                (print (.. "Tick: " tick) 90 75 13))
+
+    :gameover (do
+                (cls 0)
+                (draw-gameover)
+                (when (btnp 4) (init-game)))
+
+    :victory  (do
+                (cls 0)
+                (draw-victory)
+                (when (btnp 4) (init-game)))))
