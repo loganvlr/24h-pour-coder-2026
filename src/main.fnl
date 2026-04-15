@@ -22,7 +22,7 @@
 ;; DRAW — écrans
 
 (fn draw-menu []
-  (print "TOWER DEFENSE - Test" 75 40 12 true 2)
+  (print "TOWER DEFENSE - Test Samy" 75 40 12 true 2)
   (print "Press Z to Start" 72 70 15)
   (print "by Logan" 88 90 13))
 
