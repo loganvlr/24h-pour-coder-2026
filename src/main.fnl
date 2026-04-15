@@ -7,11 +7,6 @@
 ;; script:  fennel
 ;; strict:  true
 
-<<<<<<< HEAD
-=======
-(var couleur-texte 6)  ; 6 = vert. Essaie 11 (bleu clair)
-(var couleur-fond 0)  ; 12 = Blanc. Essaie 0 (Noir)
->>>>>>> a30aa22dc574ba32508a74cca36acc6c4c4fe8da
 
 ;; CONSTANTES
 
