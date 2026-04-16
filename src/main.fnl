@@ -115,6 +115,7 @@
 (var spawn-timer 0)
 (var boss-to-spawn nil)
 (var buff-timer 0)
+(var base-flash-timer 0)
 
 ;; Dictionnaire de tous les ennemis possibles
 ;; Dictionnaire de tous les ennemis possibles
@@ -159,8 +160,8 @@
       {:x 53  :y 82}
       {:x 77  :y 82}
       {:x 140 :y 110}
-      {:x 206 :y 71}
-      {:x 206 :y 88}
+      {:x 222 :y 71}
+      {:x 190 :y 88}
       {:x 119 :y 24}
       {:x 156 :y 24}]))
 
@@ -231,7 +232,9 @@
 
    :arrivee (fn [self]
               (set self.alive false)
-              (set lives (- lives self.degats)))
+              (set lives (- lives self.degats))
+              ;; Lance le clignotement de la base pour 30 frames
+              (set base-flash-timer 30))
 
    :afficher (fn [self]
                (set self.timer-anim (+ (or self.timer-anim 0) 1))
@@ -803,6 +806,11 @@
   (print "Toutes les vagues sont finies !" 37 75 15)
   (print "Appuyez sur Z pour rejouer" 45 90 12))
 
+(fn draw-base-flash []
+  (when (> base-flash-timer 0)
+    (when (= (% (math.floor (/ base-flash-timer 4)) 2) 0)
+      ;; On a changé le 96 en 88 ici :
+      (spr 298 208 88 0 1 0 0 4 4))))
 ;; Interface en jeu : barre noire en haut avec gold, vies et vague.
 ;; Affiche aussi le message flash temporaire s'il y en a un.
 (fn draw-ui []
@@ -880,6 +888,9 @@
                       ;; --- NOUVEAU : Décrémente le timer du buff ---
                       (when (> buff-timer 0) 
                         (set buff-timer (- buff-timer 1)))
+                        
+                      (when (> base-flash-timer 0)
+                        (set base-flash-timer (- base-flash-timer 1)))
 
                       (gerer-vagues)
                       (handle-click)
@@ -893,6 +904,7 @@
                       (draw-enemies)
                       (draw-tours)
                       (draw-projectiles)
+                      (draw-base-flash)  ;; <--- Appelle la fonction ici
                       (draw-ui))))
 
     :gameover (do
