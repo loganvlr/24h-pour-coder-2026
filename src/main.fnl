@@ -22,7 +22,7 @@
 ;; une portee de detection, un cooldown entre chaque tir,
 ;; un sprite pour l'affichage et un nom affiche dans le shop.
 (local TOUR-TYPES
-  {:ecraseur  {:cout 50  :puissance 3  :range 40 :cooldown 30 :sprite 392 :nom "Ecraseur"}
+  {:ecraseur  {:cout 50  :puissance 3  :range 40 :cooldown 30 :sprite 384 :nom "Ecraseur"}
    :tesla    {:cout 80  :puissance 7  :range 30 :cooldown 60 :sprite 366 :nom "Tesla"}
    :canon  {:cout 120 :puissance 15 :range 60 :cooldown 90 :sprite 430 :nom "Canon"}})
 
@@ -158,45 +158,51 @@
 ;;   pv-p     : points de vie initiaux
 ;;   sprite-p : ID du sprite dans l'editeur TIC-80
 ;;   path-p   : reference vers le chemin (path1 ou path2)
+;; ============================================================
+;; CLASSE ENNEMI
+;; ============================================================
+;; ============================================================
+;; CLASSE ENNEMI
+;; ============================================================
+;; ============================================================
+;; CLASSE ENNEMI
+;; ============================================================
 (fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p path-p]
   {:nom nom-p
    :x x-p
    :y y-p
    :vitesse vitesse-p
-   :index-chemin 1     ;; index du prochain waypoint a atteindre (commence a 1)
-   :pv pv-p            ;; points de vie actuels
-   :max-pv pv-p        ;; points de vie max (pour la barre de vie)
+   :index-chemin 1
+   :pv pv-p
+   :max-pv pv-p
    :sprite sprite-p
-   :alive true          ;; false quand l'ennemi est mort ou arrive au bout
-   :path path-p         ;; reference vers le tableau de waypoints
+   :alive true
+   :path path-p
+   
+   ;; --- VARIABLES D'ANIMATION ---
+   :timer_anim 0
+   :etat 1
+   :direction 0
 
-   ;; Deplace l'ennemi vers une position cible (cible-x, cible-y).
-   ;; Utilise la normalisation du vecteur direction pour un deplacement
-   ;; fluide en diagonale. math.min empeche de depasser la cible.
    :deplacer (fn [self cible-x cible-y]
                (let [dx (- cible-x self.x)
                      dy (- cible-y self.y)
                      dist (math.sqrt (+ (* dx dx) (* dy dy)))]
                  (when (> dist 0)
-                   (if (> self.x cible-x) (set self.direction 0) (set self.direction 1))
+                   ;; Détecte la direction pour l'effet miroir
+                   (set self.direction (if (< dx 0) 1 0))
+                   
                    (let [vx (/ dx dist)
                          vy (/ dy dist)
                          move (math.min self.vitesse dist)]
                      (set self.x (+ self.x (* vx move)))
                      (set self.y (+ self.y (* vy move)))))))
 
-   ;; Inflige des degats a l'ennemi. Si les PV tombent a 0 ou moins,
-   ;; l'ennemi est marque comme mort.
    :prendre-degats (fn [self montant]
                      (set self.pv (- self.pv montant))
                      (when (<= self.pv 0)
                        (set self.alive false)))
 
-   ;; Fait avancer l'ennemi le long de son chemin.
-   ;; A chaque frame, il se deplace vers le waypoint courant.
-   ;; Quand il l'atteint (comparaison avec math.floor pour gerer
-   ;; les positions decimales), il passe au waypoint suivant.
-   ;; S'il a atteint le dernier waypoint, il appelle :arrivee.
    :suivre-chemin (fn [self]
                     (let [cible (. self.path self.index-chemin)]
                       (when cible
@@ -207,33 +213,35 @@
                               (: self :arrivee)
                               (set self.index-chemin (+ self.index-chemin 1)))))))
 
-   ;; Appele quand l'ennemi atteint la fin du chemin.
-   ;; Le joueur perd une vie et l'ennemi est retire du jeu.
    :arrivee (fn [self]
               (set self.alive false)
               (set lives (- lives 1)))
 
-   ;; Dessine l'ennemi a l'ecran : son sprite centre sur sa position,
-   ;; puis une barre de vie au-dessus (rouge = fond, vert = vie restante).
    :afficher (fn [self]
-                   (set self.timer-anim (+ (or self.timer-anim 0) 1))
-    (when (>= self.timer-anim 12) ; Change de sprite toutes les 15 frames
-      (set self.timer-anim 0)
-      (if (= self.etat 1) (set self.etat 2) (set self.etat 1)))
+               (let [is_big (>= self.sprite 384)
+                     max_etat (if is_big 4 2)] 
+                 
+                 (set self.timer_anim (+ self.timer_anim 1))
+                 
+                 (when (>= self.timer_anim 8) 
+                   (set self.timer_anim 0)
+                   (if (>= self.etat max_etat)
+                       (set self.etat 1)
+                       (set self.etat (+ self.etat 1))))
 
-    ;; 2. On prépare les coordonnées
-    (let [x (math.floor self.x)
-          y (math.floor self.y)
-          ;; On choisit le sprite selon l'état
-          sprite (if (= self.etat 1) 337 336)]
-          (if (= self.direction 0) (spr sprite (- x 4) (- y 4) 0 1 1) (spr sprite (- x 4) (- y 4) 0))
+                 (let [x (math.floor self.x)
+                       y (math.floor self.y)
+                       taille (if is_big 2 1)
+                       decalage (if is_big 8 4)
+                       largeur_barre (if is_big 16 8)
+                       offset_mult (if is_big 2 1)
+                       sprite_actuel (+ self.sprite (* (- self.etat 1) offset_mult))]
 
-          
-          (let [w 8
-                       filled (math.ceil (* (/ self.pv self.max-pv) w))]
-                   (rect (- x 4) (- y 7) w 2 2)
-                   (rect (- x 4) (- y 7) filled 2 7))))})
+                   (spr sprite_actuel (- x decalage) (- y decalage) 0 1 self.direction 0 taille taille)
 
+                   (let [filled (math.ceil (* (/ self.pv self.max-pv) largeur_barre))]
+                     (rect (- x decalage) (- y (+ decalage 4)) largeur_barre 2 2)
+                     (rect (- x decalage) (- y (+ decalage 4)) filled 2 7)))))})
 ;; ============================================================
 ;; GESTION DES ENNEMIS
 ;; ============================================================
@@ -277,6 +285,21 @@
 ;;   nom-p    : nom affiche (pour debug et shop)
 ;;   x-p, y-p : position du coin haut-gauche du sprite 16x16
 ;;   type-key : cle dans TOUR-TYPES (:ecraseur, :tesla, :canon)
+;; ============================================================
+;; CLASSE TOUR
+;; ============================================================
+;; ============================================================
+;; CLASSE TOUR
+;; ============================================================
+;; ============================================================
+;; CLASSE TOUR
+;; ============================================================
+;; ============================================================
+;; CLASSE TOUR
+;; ============================================================
+;; ============================================================
+;; CLASSE TOUR
+;; ============================================================
 (fn creer-tour [nom-p x-p y-p type-key]
   (let [template (. TOUR-TYPES type-key)]
     {:nom nom-p
@@ -289,14 +312,12 @@
      :sprite template.sprite
      :cooldown template.cooldown
      :timer_tir 0
-     ;; Direction du canon : 0=droite, 1=bas, 2=gauche, 3=haut
-     ;; Seul le canon utilise cette propriete, les autres tours l'ignorent
      :direction 0
+     
+     ;; --- VARIABLES D'ANIMATION ---
+     :timer_anim 0
+     :etat 1
 
-     ;; Verifie si un ennemi est dans la ligne de tir du canon.
-     ;; Le canon ne tire que dans un couloir aligne sur sa direction.
-     ;; Le couloir fait 16 pixels de large (la taille d'une tile).
-     ;; Retourne true si l'ennemi est dans le couloir ET dans la portee.
      :dans-ligne-de-tir (fn [self enemy-x enemy-y]
        (let [cx (+ self.x 8)
              cy (+ self.y 8)
@@ -304,33 +325,12 @@
              dy (- enemy-y cy)
              largeur 16]
          (if
-           ;; Direction droite : ennemi a droite, aligne verticalement
-           (= self.direction 0)
-           (and (> dx 0) (<= dx self.range)
-                (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
-
-           ;; Direction bas : ennemi en bas, aligne horizontalement
-           (= self.direction 1)
-           (and (> dy 0) (<= dy self.range)
-                (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
-
-           ;; Direction gauche : ennemi a gauche, aligne verticalement
-           (= self.direction 2)
-           (and (< dx 0) (>= dx (- 0 self.range))
-                (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
-
-           ;; Direction haut : ennemi en haut, aligne horizontalement
-           (= self.direction 3)
-           (and (< dy 0) (>= dy (- 0 self.range))
-                (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
-
-           ;; Fallback
+           (= self.direction 0) (and (> dx 0) (<= dx self.range) (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
+           (= self.direction 1) (and (> dy 0) (<= dy self.range) (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
+           (= self.direction 2) (and (< dx 0) (>= dx (- 0 self.range)) (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
+           (= self.direction 3) (and (< dy 0) (>= dy (- 0 self.range)) (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
            false)))
 
-     ;; Logique de tir.
-     ;; Pour le canon : verifie que l'ennemi est dans la ligne de tir.
-     ;; Pour les autres tours : verifie la distance circulaire classique.
-     ;; Dans les deux cas, cible l'ennemi le plus avance dans le chemin.
      :tirs (fn [self]
              (set self.timer_tir (+ self.timer_tir 1))
              (when (>= self.timer_tir self.cooldown)
@@ -342,9 +342,7 @@
                    (when (and enemy.alive (> enemy.pv 0))
                      (let [in-range
                            (if (= self.type :canon)
-                               ;; Canon : detection en ligne
                                (: self :dans-ligne-de-tir enemy.x enemy.y)
-                               ;; Autres tours : detection circulaire
                                (let [dx (- enemy.x cx)
                                      dy (- enemy.y cy)
                                      dist-sq (+ (* dx dx) (* dy dy))
@@ -358,7 +356,6 @@
                  (set self.timer_tir 0)
                  (: best :prendre-degats self.puissance))))
 
-     ;; Tourne le canon dans la direction suivante (cycle : 0->1->2->3->0)
      :tourner (fn [self]
                 (set self.direction (% (+ self.direction 1) 4)))
 
@@ -377,27 +374,46 @@
                            (set total (+ total (. UPGRADE-COUTS i)))))
                        (math.floor (* total 0.5))))
 
-     ;; Affichage de la tour.
-     ;; Pour le canon, dessine aussi un indicateur de direction
-     ;; sous forme de ligne depuis le centre vers la direction de tir.
      :afficher (fn [self]
-                 ;; Le parametre "flip" de spr permet de retourner le sprite.
-                 ;; rotation : 0=normal, 1=90deg, 2=180deg, 3=270deg
-                 ;; On utilise la direction du canon comme rotation du sprite.
-                 (let [rot (if (= self.type :canon) (% (+ self.direction 3) 4) 0)]
-                  (spr self.sprite self.x self.y 0 1 0 rot 2 2))
-                 (print self.niveau (+ self.x 6) (- self.y 8) 15)
+                 ;; 1. Moteur d'animation STRICTEMENT réservé à l'écraseur
+                 (let [is_ecraseur (= self.type :ecraseur)
+                       max_etat 4]
+                   (when is_ecraseur
+                     (set self.timer_anim (+ self.timer_anim 1))
+                     (when (>= self.timer_anim 20) 
+                       (set self.timer_anim 0)
+                       (if (>= self.etat max_etat)
+                           (set self.etat 1)
+                           (set self.etat (+ self.etat 1))))))
 
-                 ;; Indicateur de direction pour le canon (ligne de tir)
-                 (when (= self.type :canon)
-                   (let [cx (+ self.x 8)
-                         cy (+ self.y 8)
-                         len self.range]
-                     (if (= self.direction 0) (line cx cy (+ cx len) cy 2)
-                         (= self.direction 1) (line cx cy cx (+ cy len) 2)
-                         (= self.direction 2) (line cx cy (- cx len) cy 2)
-                         (= self.direction 3) (line cx cy cx (- cy len) 2)))))}))
+                 ;; 2. Calculs et Affichage
+                 (let [is_ecraseur (= self.type :ecraseur)
+                       
+                       ;; Seul l'écraseur a le droit de monter/descendre
+                       offset_y (if is_ecraseur 
+                                    (* (math.sin (/ tick 15)) 6) 
+                                    0)
+                       
+                       ;; Seul l'écraseur a le droit de changer d'image (le canon reste sur son sprite de base)
+                       sprite_actuel (if is_ecraseur 
+                                         (+ self.sprite (* (- self.etat 1) 2)) 
+                                         self.sprite)]
+                   
+                   ;; 3. Dessiner le sprite (AUCUNE rotation : l'avant-dernier argument est 0)
+                   (spr sprite_actuel self.x (+ self.y offset_y) 0 1 0 0 2 2)
+                   
+                   ;; 4. Le texte du niveau
+                   (print self.niveau (+ self.x 6) (- (+ self.y offset_y) 8) 15)
 
+                   ;; 5. Ligne de visée du canon
+                   (when (= self.type :canon)
+                     (let [cx (+ self.x 8)
+                           cy (+ self.y 8)
+                           len self.range]
+                       (if (= self.direction 0) (line cx cy (+ cx len) cy 2)
+                           (= self.direction 1) (line cx cy cx (+ cy len) 2)
+                           (= self.direction 2) (line cx cy (- cx len) cy 2)
+                           (= self.direction 3) (line cx cy cx (- cy len) 2))))))}))
 ;; ============================================================
 ;; GESTION DES TOURS
 ;; ============================================================
