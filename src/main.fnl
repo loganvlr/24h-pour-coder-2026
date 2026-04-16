@@ -32,6 +32,9 @@
   {:canon [494 462 430 398]
    :tesla [366 334 302 270]
    :ecraseur [448 384 384 384]}) ; On met 384 pour la suite au cas où
+(local SPRITES-ECRASEUR
+  {1 {:anim [448 450 452 454 456 480 482 484 486] :barre 488}
+   2 {:anim [384 386 388 390 392 416 418 420 422] :barre 424}})
 (local MAX-NIVEAU 4)
 
 ;; ============================================================
@@ -476,21 +479,41 @@
                        (math.floor (* total 0.5))))
 
      :afficher (fn [self]
-                 (let [sprite-id (. (. SPRITES-TOURS self.type) self.niveau)
-                       rot (if (= self.type :canon) (% (+ (or self.direction 0) 2) 4) 0)
-                       cx (+ self.x 8) cy (+ self.y 8)]
+                 (let [cx (+ self.x 8) cy (+ self.y 8)]
                    
+                   ;; --- ZONES D'EFFET (Tesla et Cercle de l'écraseur) ---
                    (when (= self.type :tesla)
                      (circb cx cy self.range 12))
                      
-                   ;; Affichage du cercle d'impact (Couleur 9 = Orange standard)
                    (when (and (= self.type :ecraseur) (> self.anim_cercle 0))
                      (set self.anim_cercle (- self.anim_cercle 1))
                      (circb cx cy self.range 9)
                      (circb cx cy (- self.range 1) 9))
-                     
-                   (spr sprite-id self.x self.y 0 1 0 rot 2 2))
-                 (print self.niveau (+ self.x 6) (- self.y 8) 15))}))
+
+                   ;; --- DESSIN DES SPRITES ---
+                   (if (= self.type :ecraseur)
+                       ;; LOGIQUE SPÉCIFIQUE ECRASEUR
+                       (let [data (. SPRITES-ECRASEUR self.niveau)
+                             ;; On calcule la progression du cooldown de 0.0 à 1.0
+                             progression (/ self.timer_tir self.cooldown)
+                             ;; On map cette progression sur nos 9 frames (donne un index de 1 à 9)
+                             frame-idx (math.max 1 (math.min 9 (math.floor (+ 1 (* progression 9)))))
+                             sprite-id (. data.anim frame-idx)
+                             ;; On monte de 1 pixel Y toutes les 2 frames
+                             y-offset (math.floor (/ (- frame-idx 1) 2))]
+                         
+                         ;; 1. On dessine la barre (l'axe) fixée au sol EN PREMIER (pour qu'elle soit derrière)
+                         (spr data.barre self.x self.y 0 1 0 0 2 2)
+                         ;; 2. On dessine la pierre qui s'élève EN SECOND
+                         (spr sprite-id self.x (- self.y y-offset) 0 1 0 0 2 2))
+                       
+                       ;; LOGIQUE CLASSIQUE (Canon, Tesla)
+                       (let [sprite-id (. (. SPRITES-TOURS self.type) self.niveau)
+                             rot (if (= self.type :canon) (% (+ (or self.direction 0) 2) 4) 0)]
+                         (spr sprite-id self.x self.y 0 1 0 rot 2 2)))
+                         
+                 ;; Affichage du niveau de la tour par dessus tout
+                 (print self.niveau (+ self.x 6) (- self.y 8) 15)))}))
 ;; ============================================================
 ;; GESTION DES TOURS
 ;; ============================================================
@@ -511,9 +534,12 @@
 
 ;; Dessine les emplacements disponibles sous forme de carres gris.
 ;; Permet au joueur de voir ou il peut construire.
+;; Dessine les emplacements disponibles en utilisant le sprite 258 (16x16).
 (fn draw-emplacements []
   (each [_ empla (ipairs emplacements-tours)]
-    (rectb empla.x empla.y 16 16 13)))
+    ;; spr(id, x, y, colorkey, scale, flip, rotate, w, h)
+    ;; w=2 et h=2 car 16x16 pixels = 2x2 tiles de 8x8.
+    (spr 258 empla.x empla.y 0 1 0 0 2 2)))
 
 ;; Cherche si une tour existe a la position pixel (px, py).
 ;; Retourne la tour et son index si trouvee, nil sinon.
@@ -626,7 +652,7 @@
   (let [tour shop-tour
         template (. TOUR-TYPES tour.type)
         is-canon (= tour.type :canon)
-        dir-noms ["Droite" "Bas" "Gauche" "Haut"]]
+        dir-noms ["Haut" "Droite" "Bas" "Gauche"]]
     (print (.. "GESTION : " template.nom) 55 5 12 true)
     (print (.. "Gold: " gold) 5 5 14)
 
