@@ -26,7 +26,7 @@
    :tesla    {:cout 80  :puissance 2  :range 30 :cooldown 60  :sprite 366 :nom "Tesla"    :max-niveau 4}
    :canon    {:cout 120 :puissance 15 :range 60 :cooldown 90  :sprite 430 :nom "Canon"    :max-niveau 4}})
 
-(local UPGRADE-COUTS [40 80 150])
+(local UPGRADE-COUTS [55 85 155])
 
 (local SPRITES-TOURS
   {:canon [494 462 430 398]
