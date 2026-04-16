@@ -22,13 +22,19 @@
 ;; une portee de detection, un cooldown entre chaque tir,
 ;; un sprite pour l'affichage et un nom affiche dans le shop.
 (local TOUR-TYPES
-  {:ecraseur  {:cout 50  :puissance 3  :range 40 :cooldown 30 :sprite 384 :nom "Ecraseur"}
-   :tesla    {:cout 80  :puissance 7  :range 30 :cooldown 60 :sprite 366 :nom "Tesla"}
-   :canon  {:cout 120 :puissance 15 :range 60 :cooldown 90 :sprite 430 :nom "Canon"}})
+  {:ecraseur {:cout 50  :puissance 25 :range 20 :cooldown 300 :sprite 448 :nom "Ecraseur" :max-niveau 2}
+   :tesla    {:cout 80  :puissance 2  :range 30 :cooldown 60  :sprite 366 :nom "Tesla"    :max-niveau 4}
+   :canon    {:cout 120 :puissance 15 :range 60 :cooldown 90  :sprite 430 :nom "Canon"    :max-niveau 4}})
 
-;; Cout pour ameliorer une tour selon son niveau actuel.
-;; Index 1 = passage du niveau 1 au 2, index 2 = niveau 2 au 3, etc.
-(local UPGRADE-COUTS [40 80 150])
+(local UPGRADE-COUTS [55 85 155])
+
+(local SPRITES-TOURS
+  {:canon [494 462 430 398]
+   :tesla [366 334 302 270]
+   :ecraseur [448 384 384 384]}) ; On met 384 pour la suite au cas où
+(local SPRITES-ECRASEUR
+  {1 {:anim [448 450 452 454 456 480 482 484 486] :barre 488}
+   2 {:anim [384 386 388 390 392 416 418 420 422] :barre 424}})
 (local MAX-NIVEAU 4)
 
 ;; ============================================================
@@ -95,7 +101,7 @@
 ;; message-timer : nombre de frames restantes pour afficher le message flash
 (var state :menu)
 (var tick 0)
-(var gold 100)
+(var gold 250)
 (var lives 10)
 (var wave 0)
 (var enemies [])
@@ -104,6 +110,22 @@
 (var emplacements-tours [])
 (var message-flash nil)
 (var message-timer 0)
+(var projectiles [])  
+(var mobs-to-spawn 0)
+(var spawn-timer 0)
+(var boss-to-spawn nil)
+(var buff-timer 0)
+(var base-flash-timer 0)
+
+;; Dictionnaire de tous les ennemis possibles
+;; Dictionnaire de tous les ennemis possibles
+(local ENNEMIS-TYPES
+  {:slime-vert   {:nom "Slime V" :vitesse 0.5  :pv 7  :anim [320 321]     :w 1 :h 1 :degats 1 :heal 0}
+   :slime-orange {:nom "Slime O" :vitesse 0.55 :pv 12  :anim [336 337]     :w 1 :h 1 :degats 1 :heal 0}
+   :zombie       {:nom "Zombie"  :vitesse 0.4  :pv 18  :anim [324 340 325] :w 1 :h 1 :degats 1 :heal 0}
+   :crabe        {:nom "Crabe"   :vitesse 0.45 :pv 25  :anim [322 338]     :w 2 :h 1 :degats 1 :heal 0}
+   :ogre-vert    {:nom "Ogre V"  :vitesse 0.3  :pv 300 :anim [352 354 356] :w 2 :h 2 :degats 5 :heal 2}
+   :ogre-rouge   {:nom "Ogre R"  :vitesse 0.35 :pv 500 :anim [358 360 362] :w 2 :h 2 :degats 5 :heal 2}}) 
 
 ;; ============================================================
 ;; ETAT DU SHOP (systeme de pause avec menu d'achat/gestion)
@@ -138,8 +160,8 @@
       {:x 53  :y 82}
       {:x 77  :y 82}
       {:x 140 :y 110}
-      {:x 206 :y 71}
-      {:x 206 :y 88}
+      {:x 222 :y 71}
+      {:x 190 :y 88}
       {:x 119 :y 24}
       {:x 156 :y 24}]))
 
@@ -167,41 +189,36 @@
 ;; ============================================================
 ;; CLASSE ENNEMI
 ;; ============================================================
-(fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p sprite-p path-p]
+(fn creer-ennemi [nom-p x-p y-p vitesse-p pv-p anim-p path-p w-p h-p degats-p heal-p]
   {:nom nom-p
-   :x x-p
-   :y y-p
-   :vitesse vitesse-p
-   :index-chemin 1
-   :pv pv-p
-   :max-pv pv-p
-   :sprite sprite-p
-   :alive true
-   :path path-p
-   
-   ;; --- VARIABLES D'ANIMATION ---
-   :timer_anim 0
-   :etat 1
-   :direction 0
+   :x x-p :y y-p :vitesse vitesse-p :index-chemin 1
+   :pv pv-p :max-pv pv-p :anim anim-p :alive true :path path-p
+   :w (or w-p 1) :h (or h-p 1)
+   :degats (or degats-p 1) 
+   :heal (or heal-p 0)
+   :direction 0 :etat 1 :timer-anim 0
 
    :deplacer (fn [self cible-x cible-y]
-               (let [dx (- cible-x self.x)
-                     dy (- cible-y self.y)
+               (let [dx (- cible-x self.x) dy (- cible-y self.y)
                      dist (math.sqrt (+ (* dx dx) (* dy dy)))]
                  (when (> dist 0)
-                   ;; Détecte la direction pour l'effet miroir
-                   (set self.direction (if (< dx 0) 1 0))
-                   
-                   (let [vx (/ dx dist)
-                         vy (/ dy dist)
+                   (if (> (math.abs dx) (math.abs dy))
+                       (if (> dx 0) (set self.direction 0) (set self.direction 2))
+                       (if (> dy 0) (set self.direction 1) (set self.direction 3)))
+                       
+                   (let [vx (/ dx dist) vy (/ dy dist)
                          move (math.min self.vitesse dist)]
                      (set self.x (+ self.x (* vx move)))
                      (set self.y (+ self.y (* vy move)))))))
 
    :prendre-degats (fn [self montant]
-                     (set self.pv (- self.pv montant))
-                     (when (<= self.pv 0)
-                       (set self.alive false)))
+                     ;; Si le timer est au-dessus de 0, on double les dégâts
+                     (let [degats-finaux (if (> buff-timer 0) (* montant 2) montant)]
+                       (set self.pv (- self.pv degats-finaux))
+                       (when (<= self.pv 0)
+                         (set self.alive false)
+                         (when (> self.heal 0) 
+                           (set lives (+ lives self.heal))))))
 
    :suivre-chemin (fn [self]
                     (let [cible (. self.path self.index-chemin)]
@@ -215,44 +232,104 @@
 
    :arrivee (fn [self]
               (set self.alive false)
-              (set lives (- lives 1)))
+              (set lives (- lives self.degats))
+              ;; Lance le clignotement de la base pour 30 frames
+              (set base-flash-timer 30))
 
    :afficher (fn [self]
-               (let [is_big (>= self.sprite 384)
-                     max_etat (if is_big 4 2)] 
-                 
-                 (set self.timer_anim (+ self.timer_anim 1))
-                 
-                 (when (>= self.timer_anim 8) 
-                   (set self.timer_anim 0)
-                   (if (>= self.etat max_etat)
-                       (set self.etat 1)
-                       (set self.etat (+ self.etat 1))))
+               (set self.timer-anim (+ (or self.timer-anim 0) 1))
+               (when (>= self.timer-anim 12) 
+                 (set self.timer-anim 0)
+                 ;; On passe à la frame suivante
+                 (set self.etat (+ self.etat 1))
+                 ;; Si on dépasse le nombre de frames dispos, on boucle à 1
+                 (when (> self.etat (length self.anim))
+                   (set self.etat 1)))
 
-                 (let [x (math.floor self.x)
-                       y (math.floor self.y)
-                       taille (if is_big 2 1)
-                       decalage (if is_big 8 4)
-                       largeur_barre (if is_big 16 8)
-                       offset_mult (if is_big 2 1)
-                       sprite_actuel (+ self.sprite (* (- self.etat 1) offset_mult))]
+               (let [x (math.floor self.x)
+                     y (math.floor self.y)
+                     
+                     ;; On va piocher le bon sprite dans la liste
+                     sprite-actuel (. self.anim self.etat)
+                     
+                     est-petit? (and (= self.w 1) (= self.h 1))
+                     flip (if (= self.direction 2) 1 0)
+                     
+                     rot (if est-petit?
+                             (match self.direction 0 0 1 1 2 0 3 3)
+                             0)
+                             
+                     offset-x (* self.w 4)
+                     offset-y (* self.h 4)]
 
-                   (spr sprite_actuel (- x decalage) (- y decalage) 0 1 self.direction 0 taille taille)
+                 ;; Affichage du sprite
+                 (spr sprite-actuel (- x offset-x) (- y offset-y) 0 1 flip rot self.w self.h)
 
-                   (let [filled (math.ceil (* (/ self.pv self.max-pv) largeur_barre))]
-                     (rect (- x decalage) (- y (+ decalage 4)) largeur_barre 2 2)
-                     (rect (- x decalage) (- y (+ decalage 4)) filled 2 7)))))})
+                 ;; Barre de vie
+                 (let [bar-w (* self.w 8)
+                       filled (math.ceil (* (/ self.pv self.max-pv) bar-w))]
+                   (rect (- x offset-x) (- y (+ offset-y 3)) bar-w 2 2)
+                   (rect (- x offset-x) (- y (+ offset-y 3)) filled 2 7))))})
 ;; ============================================================
 ;; GESTION DES ENNEMIS
 ;; ============================================================
 
 ;; Cree un nouvel ennemi au debut d'un chemin choisi au hasard
 ;; et l'ajoute a la liste des ennemis actifs.
-(fn spawn-enemy [nom vitesse pv sprite]
-  (let [chosen-path (if (< (math.random) 0.5) path1 path2)
-        start (. chosen-path 1)]
+(fn spawn-enemy-type [type-key]
+  (let [template (. ENNEMIS-TYPES type-key)
+        chosen-path (if (< (math.random) 0.5) path1 path2)
+        start (. chosen-path 1)
+        
+        palier (math.floor (/ wave 5))
+        multi-pv (+ 1 (* palier 0.4))  
+        multi-vit (+ 1 (* palier 0.1)) 
+        
+        pv-final (* template.pv multi-pv)
+        vit-final (* template.vitesse multi-vit)]
+        
     (table.insert enemies
-      (creer-ennemi nom start.x start.y vitesse pv sprite chosen-path))))
+      ;; On passe template.anim ici au lieu de template.sprite
+      (creer-ennemi template.nom start.x start.y vit-final pv-final template.anim chosen-path template.w template.h template.degats template.heal))))
+
+(fn demarrer-vague []
+  (set wave (+ wave 1))
+  ;; On augmente le nombre de mobs à chaque vague
+  (set mobs-to-spawn (+ 5 (* wave 2))) 
+  (set spawn-timer 60)
+  
+  ;; Détection des boss
+  (if (= (% wave 20) 0)
+      (set boss-to-spawn :ogre-rouge)
+      (= (% wave 5) 0)
+      (set boss-to-spawn :ogre-vert)
+      (set boss-to-spawn nil)))
+
+(fn gerer-vagues []
+  ;; Condition pour lancer la vague suivante : la map est vide ET la liste d'attente est vide
+  (when (and (= (length enemies) 0) (= mobs-to-spawn 0) (not boss-to-spawn))
+    (demarrer-vague))
+    
+  (when (> spawn-timer 0)
+    (set spawn-timer (- spawn-timer 1)))
+    
+  (when (= spawn-timer 0)
+    (if (> mobs-to-spawn 0)
+        (do
+          ;; Choisir un ennemi normal au hasard parmi les 4 petits
+          (let [types [:slime-vert :slime-orange :zombie :crabe]
+                choix (. types (math.random 1 4))]
+            (spawn-enemy-type choix))
+          (set mobs-to-spawn (- mobs-to-spawn 1))
+          ;; Le spawn s'accélère avec les vagues (limite max à 20 frames pour pas saturer l'écran)
+          (set spawn-timer (math.max 20 (- 50 wave))))
+          
+        boss-to-spawn
+        (do
+          ;; On spawn le boss tout seul à la fin de la vague
+          (spawn-enemy-type boss-to-spawn)
+          (set boss-to-spawn nil)
+          (set spawn-timer 120))))) ;; Grosse pause pour le boss
 
 ;; Met a jour tous les ennemis : deplacement puis nettoyage des morts.
 ;; La suppression se fait en boucle inversee pour ne pas decaler les index.
@@ -265,7 +342,8 @@
     (let [enemy (. enemies i)]
       (when (not enemy.alive)
         (when (<= enemy.pv 0)
-          (set gold (+ gold 10)))
+          ;; L'argent gagné par kill est réduit de 30% (7 au lieu de 10)
+          (set gold (+ gold 6))) 
         (table.remove enemies i)))))
 
 ;; Dessine tous les ennemis vivants a l'ecran.
@@ -274,6 +352,40 @@
     (when enemy.alive
       (: enemy :afficher))))
 
+;; --- GESTION DES PROJECTILES ---
+
+(fn creer-projectile [x y dx dy dmg]
+  {:x x :y y :dx dx :dy dy :dmg dmg 
+   :sprite 278 
+   :hits {} ;; Table pour stocker les ennemis déjà touchés
+   :alive true})
+
+(fn update-projectiles []
+  (for [i (length projectiles) 1 -1]
+    (let [p (. projectiles i)]
+      ;; Mouvement
+      (set p.x (+ p.x p.dx))
+      (set p.y (+ p.y p.dy))
+      
+      ;; Collision avec les ennemis
+      (each [_ enemy (ipairs enemies)]
+        (when (and enemy.alive 
+                   (< (math.abs (- p.x enemy.x)) 8) 
+                   (< (math.abs (- p.y enemy.y)) 8))
+          ;; Si on n'a pas encore touché cet ennemi précis
+          (when (not (. p.hits enemy))
+            (: enemy :prendre-degats p.dmg)
+            (tset p.hits enemy true)))) ;; On le marque comme "déjà touché"
+
+      ;; Nettoyage si hors écran
+      (when (or (< p.x -10) (> p.x 250) (< p.y -10) (> p.y 150))
+        (set p.alive false))
+      
+      (if (not p.alive) (table.remove projectiles i)))))
+
+(fn draw-projectiles []
+  (each [_ p (ipairs projectiles)]
+    (spr p.sprite p.x p.y 0)))
 ;; ============================================================
 ;; CLASSE TOUR
 ;; ============================================================
@@ -291,39 +403,17 @@
 ;; ============================================================
 ;; CLASSE TOUR
 ;; ============================================================
-;; ============================================================
-;; CLASSE TOUR
-;; ============================================================
-;; ============================================================
-;; CLASSE TOUR
-;; ============================================================
-;; ============================================================
-;; CLASSE TOUR
-;; ============================================================
 (fn creer-tour [nom-p x-p y-p type-key]
   (let [template (. TOUR-TYPES type-key)]
-    {:nom nom-p
-     :x x-p
-     :y y-p
-     :type type-key
-     :niveau 1
-     :range template.range
-     :puissance template.puissance
-     :sprite template.sprite
-     :cooldown template.cooldown
-     :timer_tir 0
-     :direction 0
-     
-     ;; --- VARIABLES D'ANIMATION ---
-     :timer_anim 0
-     :etat 1
+    {:nom nom-p :x x-p :y y-p :type type-key :niveau 1
+     :range template.range :puissance template.puissance
+     :sprite template.sprite :cooldown template.cooldown
+     :max-niveau template.max-niveau
+     :timer_tir 0 :direction 0 :anim_cercle 0
 
      :dans-ligne-de-tir (fn [self enemy-x enemy-y]
-       (let [cx (+ self.x 8)
-             cy (+ self.y 8)
-             dx (- enemy-x cx)
-             dy (- enemy-y cy)
-             largeur 16]
+       (let [cx (+ self.x 8) cy (+ self.y 8)
+             dx (- enemy-x cx) dy (- enemy-y cy) largeur 16]
          (if
            (= self.direction 0) (and (> dx 0) (<= dx self.range) (>= dy (- 0 (/ largeur 2))) (<= dy (/ largeur 2)))
            (= self.direction 1) (and (> dy 0) (<= dy self.range) (>= dx (- 0 (/ largeur 2))) (<= dx (/ largeur 2)))
@@ -334,40 +424,57 @@
      :tirs (fn [self]
              (set self.timer_tir (+ self.timer_tir 1))
              (when (>= self.timer_tir self.cooldown)
-               (var best nil)
-               (var best-waypoint 0)
-               (let [cx (+ self.x 8)
-                     cy (+ self.y 8)]
-                 (each [_ enemy (ipairs enemies)]
-                   (when (and enemy.alive (> enemy.pv 0))
-                     (let [in-range
-                           (if (= self.type :canon)
-                               (: self :dans-ligne-de-tir enemy.x enemy.y)
-                               (let [dx (- enemy.x cx)
-                                     dy (- enemy.y cy)
-                                     dist-sq (+ (* dx dx) (* dy dy))
-                                     range-sq (* self.range self.range)]
-                                 (<= dist-sq range-sq)))]
-                       (when (and in-range
-                                  (>= enemy.index-chemin best-waypoint))
-                         (set best enemy)
-                         (set best-waypoint enemy.index-chemin))))))
-               (when best
-                 (set self.timer_tir 0)
-                 (: best :prendre-degats self.puissance))))
+               (let [cx (+ self.x 8) cy (+ self.y 8)]
+                 
+                 (if (= self.type :canon)
+                   ;; --- LOGIQUE CANON ---
+                   (do
+                     (var cible-en-vue? false)
+                     (each [_ enemy (ipairs enemies) &until cible-en-vue?]
+                       (when (and enemy.alive (: self :dans-ligne-de-tir enemy.x enemy.y))
+                         (set cible-en-vue? true)))
+                     (when cible-en-vue?
+                       (set self.timer_tir 0)
+                       (let [v 2
+                             (dx dy) (match self.direction 0 (values v 0) 1 (values 0 v) 2 (values (- v) 0) 3 (values 0 (- v)))] 
+                         (table.insert projectiles (creer-projectile (+ self.x 4) (+ self.y 4) dx dy self.puissance)))))
+                   
+                   ;; --- LOGIQUE ECRASEUR ET TESLA (Zone) ---
+                   (do
+                     (var a-tire? false)
+                     (each [_ enemy (ipairs enemies)]
+                       (when (and enemy.alive (> enemy.pv 0))
+                         (let [dx (- enemy.x cx) dy (- enemy.y cy)
+                               dist-sq (+ (* dx dx) (* dy dy))
+                               range-sq (* self.range self.range)]
+                           (when (<= dist-sq range-sq)
+                             (: enemy :prendre-degats self.puissance)
+                             (set a-tire? true)))))
+                     
+                     (when a-tire?
+                       (set self.timer_tir 0)
+                       ;; Si c'est un écraseur, on déclenche l'animation du cercle pour 15 frames
+                       (when (= self.type :ecraseur)
+                         (set self.anim_cercle 15))))))))
 
-     :tourner (fn [self]
-                (set self.direction (% (+ self.direction 1) 4)))
+     :tourner (fn [self] (set self.direction (% (+ self.direction 1) 4)))
 
      :ameliorer (fn [self]
                   (set self.niveau (+ self.niveau 1))
-                  (set self.range (+ self.range 8))
-                  (set self.puissance (+ self.puissance 3))
-                  (set self.cooldown (math.max 10 (- self.cooldown 5))))
+                  (if (= self.type :ecraseur)
+                    (do
+                      ;; L'écraseur niveau 2 : portée un peu plus grande (30) et plus de dégâts
+                      (set self.range 30)
+                      (set self.puissance (+ self.puissance 20))
+                      (set self.cooldown 180))
+                    (do
+                      ;; Les autres tours
+                      (set self.range (+ self.range 8))
+                      (set self.puissance (+ self.puissance 3))
+                      (set self.cooldown (math.max 10 (- self.cooldown 5))))))
 
      :valeur-vente (fn [self]
-                     (let [template (. TOUR-TYPES self.type)
-                           base template.cout]
+                     (let [template (. TOUR-TYPES self.type) base template.cout]
                        (var total base)
                        (for [i 1 (- self.niveau 1)]
                          (when (<= i (length UPGRADE-COUTS))
@@ -375,45 +482,41 @@
                        (math.floor (* total 0.5))))
 
      :afficher (fn [self]
-                 ;; 1. Moteur d'animation STRICTEMENT réservé à l'écraseur
-                 (let [is_ecraseur (= self.type :ecraseur)
-                       max_etat 4]
-                   (when is_ecraseur
-                     (set self.timer_anim (+ self.timer_anim 1))
-                     (when (>= self.timer_anim 20) 
-                       (set self.timer_anim 0)
-                       (if (>= self.etat max_etat)
-                           (set self.etat 1)
-                           (set self.etat (+ self.etat 1))))))
-
-                 ;; 2. Calculs et Affichage
-                 (let [is_ecraseur (= self.type :ecraseur)
-                       
-                       ;; Seul l'écraseur a le droit de monter/descendre
-                       offset_y (if is_ecraseur 
-                                    (* (math.sin (/ tick 15)) 6) 
-                                    0)
-                       
-                       ;; Seul l'écraseur a le droit de changer d'image (le canon reste sur son sprite de base)
-                       sprite_actuel (if is_ecraseur 
-                                         (+ self.sprite (* (- self.etat 1) 2)) 
-                                         self.sprite)]
+                 (let [cx (+ self.x 8) cy (+ self.y 8)]
                    
-                   ;; 3. Dessiner le sprite (AUCUNE rotation : l'avant-dernier argument est 0)
-                   (spr sprite_actuel self.x (+ self.y offset_y) 0 1 0 0 2 2)
-                   
-                   ;; 4. Le texte du niveau
-                   (print self.niveau (+ self.x 6) (- (+ self.y offset_y) 8) 15)
+                   ;; --- ZONES D'EFFET (Tesla et Cercle de l'écraseur) ---
+                   (when (= self.type :tesla)
+                     (circb cx cy self.range 12))
+                     
+                   (when (and (= self.type :ecraseur) (> self.anim_cercle 0))
+                     (set self.anim_cercle (- self.anim_cercle 1))
+                     (circb cx cy self.range 9)
+                     (circb cx cy (- self.range 1) 9))
 
-                   ;; 5. Ligne de visée du canon
-                   (when (= self.type :canon)
-                     (let [cx (+ self.x 8)
-                           cy (+ self.y 8)
-                           len self.range]
-                       (if (= self.direction 0) (line cx cy (+ cx len) cy 2)
-                           (= self.direction 1) (line cx cy cx (+ cy len) 2)
-                           (= self.direction 2) (line cx cy (- cx len) cy 2)
-                           (= self.direction 3) (line cx cy cx (- cy len) 2))))))}))
+                   ;; --- DESSIN DES SPRITES ---
+                   (if (= self.type :ecraseur)
+                       ;; LOGIQUE SPÉCIFIQUE ECRASEUR
+                       (let [data (. SPRITES-ECRASEUR self.niveau)
+                             ;; On calcule la progression du cooldown de 0.0 à 1.0
+                             progression (/ self.timer_tir self.cooldown)
+                             ;; On map cette progression sur nos 9 frames (donne un index de 1 à 9)
+                             frame-idx (math.max 1 (math.min 9 (math.floor (+ 1 (* progression 9)))))
+                             sprite-id (. data.anim frame-idx)
+                             ;; On monte de 1 pixel Y toutes les 2 frames
+                             y-offset (math.floor (/ (- frame-idx 1) 2))]
+                         
+                         ;; 1. On dessine la barre (l'axe) fixée au sol EN PREMIER (pour qu'elle soit derrière)
+                         (spr data.barre self.x self.y 0 1 0 0 2 2)
+                         ;; 2. On dessine la pierre qui s'élève EN SECOND
+                         (spr sprite-id self.x (- self.y y-offset) 0 1 0 0 2 2))
+                       
+                       ;; LOGIQUE CLASSIQUE (Canon, Tesla)
+                       (let [sprite-id (. (. SPRITES-TOURS self.type) self.niveau)
+                             rot (if (= self.type :canon) (% (+ (or self.direction 0) 2) 4) 0)]
+                         (spr sprite-id self.x self.y 0 1 0 rot 2 2)))
+                         
+                 ;; Affichage du niveau de la tour par dessus tout
+                 (print self.niveau (+ self.x 6) (- self.y 8) 15)))}))
 ;; ============================================================
 ;; GESTION DES TOURS
 ;; ============================================================
@@ -434,9 +537,12 @@
 
 ;; Dessine les emplacements disponibles sous forme de carres gris.
 ;; Permet au joueur de voir ou il peut construire.
+;; Dessine les emplacements disponibles en utilisant le sprite 258 (16x16).
 (fn draw-emplacements []
   (each [_ empla (ipairs emplacements-tours)]
-    (rectb empla.x empla.y 16 16 13)))
+    ;; spr(id, x, y, colorkey, scale, flip, rotate, w, h)
+    ;; w=2 et h=2 car 16x16 pixels = 2x2 tiles de 8x8.
+    (spr 258 empla.x empla.y 0 1 0 0 2 2)))
 
 ;; Cherche si une tour existe a la position pixel (px, py).
 ;; Retourne la tour et son index si trouvee, nil sinon.
@@ -549,38 +655,34 @@
   (let [tour shop-tour
         template (. TOUR-TYPES tour.type)
         is-canon (= tour.type :canon)
-        ;; Noms des directions pour l'affichage
-        dir-noms ["Droite" "Bas" "Gauche" "Haut"]]
+        dir-noms ["Haut" "Droite" "Bas" "Gauche"]]
     (print (.. "GESTION : " template.nom) 55 5 12 true)
     (print (.. "Gold: " gold) 5 5 14)
 
-    ;; Stats actuelles
-    (print (.. "Niveau: " tour.niveau "/" MAX-NIVEAU) 30 22 15)
+    ;; Utilise tour.max-niveau au lieu de MAX-NIVEAU
+    (print (.. "Niveau: " tour.niveau "/" tour.max-niveau) 30 22 15)
     (print (.. "Degats: " tour.puissance) 30 32 15)
     (print (.. "Portee: " tour.range) 30 42 15)
     (print (.. "Vitesse: " tour.cooldown " (bas=rapide)") 30 52 15)
-    ;; Afficher la direction si c'est un canon
     (when is-canon
       (print (.. "Direction: " (. dir-noms (+ tour.direction 1))) 130 42 2))
 
-    ;; Option 0 : Ameliorer
     (let [sel (= shop-cursor 0)
           col (if sel 6 13)
-          can-upgrade (< tour.niveau MAX-NIVEAU)
+          can-upgrade (< tour.niveau tour.max-niveau) ;; Changé ici aussi
           upgrade-cout (if can-upgrade (. UPGRADE-COUTS tour.niveau) 0)]
       (rectb 20 62 200 22 col)
       (when sel (rect 21 63 198 20 1))
       (if can-upgrade
           (do
             (print (.. "AMELIORER  -  $" upgrade-cout) 30 66 col)
-            (print (.. "-> DMG:" (+ tour.puissance 3)
-                       " RNG:" (+ tour.range 8)
-                       " SPD:" (math.max 10 (- tour.cooldown 5))) 30 75 11))
+            (if (= tour.type :ecraseur)
+              ;; Affiche la nouvelle range (30) et les dégâts
+              (print (.. "-> DMG:" (+ tour.puissance 20) " RNG:30 SPD:180") 30 75 11)
+              (print (.. "-> DMG:" (+ tour.puissance 3) " RNG:" (+ tour.range 8) " SPD:" (math.max 10 (- tour.cooldown 5))) 30 75 11)))
           (print "NIVEAU MAX ATTEINT" 30 69 8)))
 
-    ;; Option 1 : Tourner (seulement pour le canon)
-    (let [sel (= shop-cursor 1)
-          col (if sel 12 13)]
+    (let [sel (= shop-cursor 1) col (if sel 12 13)]
       (rectb 20 87 200 14 col)
       (when sel (rect 21 88 198 12 1))
       (if is-canon
@@ -588,17 +690,12 @@
             (print (.. "TOURNER -> " next-dir) 30 90 col))
           (print "-- non disponible --" 30 90 7)))
 
-    ;; Option 2 : Vendre
-    (let [sel (= shop-cursor 2)
-          col (if sel 14 13)
-          prix-vente (: tour :valeur-vente)]
+    (let [sel (= shop-cursor 2) col (if sel 14 13) prix-vente (: tour :valeur-vente)]
       (rectb 20 104 200 14 col)
       (when sel (rect 21 105 198 12 1))
       (print (.. "VENDRE  +$" prix-vente) 30 107 col))
 
-    ;; Option 3 : Retour
-    (let [sel (= shop-cursor 3)
-          col (if sel 8 13)]
+    (let [sel (= shop-cursor 3) col (if sel 8 13)]
       (rectb 20 121 200 14 col)
       (when sel (rect 21 122 198 12 1))
       (print "RETOUR" 30 124 col))
@@ -611,10 +708,9 @@
 
   (when (btnp 4)
     (if
-      ;; Ameliorer
       (= shop-cursor 0)
       (let [tour shop-tour]
-        (when (< tour.niveau MAX-NIVEAU)
+        (when (< tour.niveau tour.max-niveau) ;; Changé ici aussi
           (let [cout (. UPGRADE-COUTS tour.niveau)]
             (if (>= gold cout)
                 (do
@@ -625,21 +721,16 @@
                   (set message-timer 60)
                   (set shop-mode nil))))))
 
-      ;; Tourner (seulement pour le canon)
       (= shop-cursor 1)
-      (when (= shop-tour.type :canon)
-        (: shop-tour :tourner))
+      (when (= shop-tour.type :canon) (: shop-tour :tourner))
 
-      ;; Vendre
       (= shop-cursor 2)
-      (let [tour shop-tour
-            prix (: tour :valeur-vente)]
+      (let [tour shop-tour prix (: tour :valeur-vente)]
         (set gold (+ gold prix))
         (table.insert emplacements-tours {:x tour.x :y tour.y})
         (table.remove liste-tours shop-tour-idx)
         (set shop-mode nil))
 
-      ;; Retour
       (= shop-cursor 3)
       (set shop-mode nil))))
 
@@ -659,27 +750,35 @@
         (do
           (set nb_click 0)
 
-          ;; Verifier si le clic est sur une tour existante
-          (let [(tour idx) (find-tour-at mx my)]
-            (if tour
-                ;; Tour trouvee : ouvrir le menu de gestion
-                (do
-                  (set shop-tour tour)
-                  (set shop-tour-idx idx)
-                  (set shop-cursor 0)
-                  (set shop-mode :gestion))
+          ;; 1. Vérifier si on clique sur le bouton BUFF (zone en haut à droite)
+          (if (and (<= buff-timer 0) (>= mx 160) (<= mx 200) (>= my 0) (<= my 16))
+              (if (>= gold 100)
+                  (do
+                    (set gold (- gold 100))
+                    (set buff-timer 1800)) ; 30 secondes à 60 fps
+                  (do
+                    (set message-flash "Pas assez d'or !")
+                    (set message-timer 60)))
 
-                ;; Pas de tour : verifier si c'est un emplacement libre
-                (do
-                  (var found false)
-                  (each [i empla (ipairs emplacements-tours) &until found]
-                    (when (and (>= mx empla.x) (<= mx (+ empla.x 16))
-                               (>= my empla.y) (<= my (+ empla.y 16)))
-                      (set found true)
-                      (set shop-emplacement empla)
-                      (set shop-emplacement-idx i)
+              ;; 2. Sinon, on vérifie les clics classiques sur la map (tours et emplacements)
+              (let [(tour idx) (find-tour-at mx my)]
+                (if tour
+                    (do
+                      (set shop-tour tour)
+                      (set shop-tour-idx idx)
                       (set shop-cursor 0)
-                      (set shop-mode :achat)))))))
+                      (set shop-mode :gestion))
+
+                    (do
+                      (var found false)
+                      (each [i empla (ipairs emplacements-tours) &until found]
+                        (when (and (>= mx empla.x) (<= mx (+ empla.x 16))
+                                   (>= my empla.y) (<= my (+ empla.y 16)))
+                          (set found true)
+                          (set shop-emplacement empla)
+                          (set shop-emplacement-idx i)
+                          (set shop-cursor 0)
+                          (set shop-mode :achat))))))))
 
         ;; Quand le bouton est relache, reactiver la detection
         (when (not clic)
@@ -707,6 +806,11 @@
   (print "Toutes les vagues sont finies !" 37 75 15)
   (print "Appuyez sur Z pour rejouer" 45 90 12))
 
+(fn draw-base-flash []
+  (when (> base-flash-timer 0)
+    (when (= (% (math.floor (/ base-flash-timer 4)) 2) 0)
+      ;; On a changé le 96 en 88 ici :
+      (spr 298 208 88 0 1 0 0 4 4))))
 ;; Interface en jeu : barre noire en haut avec gold, vies et vague.
 ;; Affiche aussi le message flash temporaire s'il y en a un.
 (fn draw-ui []
@@ -714,26 +818,18 @@
   (print (.. "Gold:" gold) 2 1 14)
   (print (.. "Lives:" lives) 60 1 8)
   (print (.. "Wave:" wave) 120 1 12)
+  
+  ;; Affichage du Buff ou du Timer
+  (if (> buff-timer 0)
+    (print (.. "X2: " (math.ceil (/ buff-timer 60)) "s") 170 1 6)
+    (do
+      (print "BUFF:" 160 1 11)
+      (spr 276 190 0 0 1 0 0 1 1))) ;; Affiche ta flèche verte
+      
   (when (> message-timer 0)
     (set message-timer (- message-timer 1))
     (print message-flash 70 112 2)))
 
-
-;;Vagues
-(var numero_wave 1)
-(var nb_ennemis 0)
-
-(fn vague [numero]
-
-  (if (= numero 1)
-    (if (< nb_ennemis 15)
-      (when (and (= (% tick 30) 0) (< (length enemies) 100))
-      (set nb_ennemis (+ nb_ennemis 1))
-      (spawn-enemy (.. "basic" tick) 0.5 10 320))
-      )
-      (set numero_wave (+ numero_wave 1))
-  )
-)
 
 ;; ============================================================
 ;; INITIALISATION D'UNE NOUVELLE PARTIE
@@ -742,7 +838,7 @@
 ;; Appele au premier lancement et a chaque restart.
 (fn init-game []
   (set tick 0)
-  (set gold 1000)
+  (set gold 250)
   (set lives 10)
   (set wave 1)
   (set enemies [])
@@ -754,7 +850,8 @@
   (set shop-tour nil)
   (set shop-emplacement nil)
   (reset-emplacements)
-  (set state :playing))
+  (set state :playing)
+  (set buff-timer 0))
 
 ;; ============================================================
 ;; BOUCLE PRINCIPALE : _G.TIC
@@ -788,19 +885,26 @@
 
                     ;; Pas de shop : gameplay normal
                     (do
-                      ;; Spawn d'un ennemi toutes les 30 frames (0.5 sec)
-                      ;; tant qu'il y a moins de 100 ennemis a l'ecran
+                      ;; --- NOUVEAU : Décrémente le timer du buff ---
+                      (when (> buff-timer 0) 
+                        (set buff-timer (- buff-timer 1)))
+                        
+                      (when (> base-flash-timer 0)
+                        (set base-flash-timer (- base-flash-timer 1)))
 
-                      (vague 1)
+                      (gerer-vagues)
                       (handle-click)
                       (update-enemies)
                       (update-tours)
+                      (update-projectiles)
                       (when (<= lives 0) (set state :gameover))
                       (cls 0)
                       (map 0 0 30 17)
                       (draw-emplacements)
                       (draw-enemies)
                       (draw-tours)
+                      (draw-projectiles)
+                      (draw-base-flash)  ;; <--- Appelle la fonction ici
                       (draw-ui))))
 
     :gameover (do
