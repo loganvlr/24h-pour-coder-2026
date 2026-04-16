@@ -98,7 +98,7 @@
 ;; message-timer : nombre de frames restantes pour afficher le message flash
 (var state :menu)
 (var tick 0)
-(var gold 1000)
+(var gold 250)
 (var lives 10)
 (var wave 0)
 (var enemies [])
@@ -334,7 +334,7 @@
       (when (not enemy.alive)
         (when (<= enemy.pv 0)
           ;; L'argent gagné par kill est réduit de 30% (7 au lieu de 10)
-          (set gold (+ gold 7))) 
+          (set gold (+ gold 6))) 
         (table.remove enemies i)))))
 
 ;; Dessine tous les ennemis vivants a l'ecran.
@@ -786,7 +786,7 @@
 ;; Appele au premier lancement et a chaque restart.
 (fn init-game []
   (set tick 0)
-  (set gold 1000)
+  (set gold 250)
   (set lives 10)
   (set wave 1)
   (set enemies [])
