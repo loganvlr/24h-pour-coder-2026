@@ -111,6 +111,7 @@
 (var mobs-to-spawn 0)
 (var spawn-timer 0)
 (var boss-to-spawn nil)
+(var buff-timer 0)
 
 ;; Dictionnaire de tous les ennemis possibles
 ;; Dictionnaire de tous les ennemis possibles
@@ -207,11 +208,13 @@
                      (set self.y (+ self.y (* vy move)))))))
 
    :prendre-degats (fn [self montant]
-                     (set self.pv (- self.pv montant))
-                     (when (<= self.pv 0)
-                       (set self.alive false)
-                       (when (> self.heal 0) 
-                         (set lives (+ lives self.heal)))))
+                     ;; Si le timer est au-dessus de 0, on double les dégâts
+                     (let [degats-finaux (if (> buff-timer 0) (* montant 2) montant)]
+                       (set self.pv (- self.pv degats-finaux))
+                       (when (<= self.pv 0)
+                         (set self.alive false)
+                         (when (> self.heal 0) 
+                           (set lives (+ lives self.heal))))))
 
    :suivre-chemin (fn [self]
                     (let [cible (. self.path self.index-chemin)]
@@ -718,27 +721,35 @@
         (do
           (set nb_click 0)
 
-          ;; Verifier si le clic est sur une tour existante
-          (let [(tour idx) (find-tour-at mx my)]
-            (if tour
-                ;; Tour trouvee : ouvrir le menu de gestion
-                (do
-                  (set shop-tour tour)
-                  (set shop-tour-idx idx)
-                  (set shop-cursor 0)
-                  (set shop-mode :gestion))
+          ;; 1. Vérifier si on clique sur le bouton BUFF (zone en haut à droite)
+          (if (and (<= buff-timer 0) (>= mx 160) (<= mx 200) (>= my 0) (<= my 16))
+              (if (>= gold 100)
+                  (do
+                    (set gold (- gold 100))
+                    (set buff-timer 1800)) ; 30 secondes à 60 fps
+                  (do
+                    (set message-flash "Pas assez d'or !")
+                    (set message-timer 60)))
 
-                ;; Pas de tour : verifier si c'est un emplacement libre
-                (do
-                  (var found false)
-                  (each [i empla (ipairs emplacements-tours) &until found]
-                    (when (and (>= mx empla.x) (<= mx (+ empla.x 16))
-                               (>= my empla.y) (<= my (+ empla.y 16)))
-                      (set found true)
-                      (set shop-emplacement empla)
-                      (set shop-emplacement-idx i)
+              ;; 2. Sinon, on vérifie les clics classiques sur la map (tours et emplacements)
+              (let [(tour idx) (find-tour-at mx my)]
+                (if tour
+                    (do
+                      (set shop-tour tour)
+                      (set shop-tour-idx idx)
                       (set shop-cursor 0)
-                      (set shop-mode :achat)))))))
+                      (set shop-mode :gestion))
+
+                    (do
+                      (var found false)
+                      (each [i empla (ipairs emplacements-tours) &until found]
+                        (when (and (>= mx empla.x) (<= mx (+ empla.x 16))
+                                   (>= my empla.y) (<= my (+ empla.y 16)))
+                          (set found true)
+                          (set shop-emplacement empla)
+                          (set shop-emplacement-idx i)
+                          (set shop-cursor 0)
+                          (set shop-mode :achat))))))))
 
         ;; Quand le bouton est relache, reactiver la detection
         (when (not clic)
@@ -773,10 +784,17 @@
   (print (.. "Gold:" gold) 2 1 14)
   (print (.. "Lives:" lives) 60 1 8)
   (print (.. "Wave:" wave) 120 1 12)
+  
+  ;; Affichage du Buff ou du Timer
+  (if (> buff-timer 0)
+    (print (.. "X2: " (math.ceil (/ buff-timer 60)) "s") 170 1 6)
+    (do
+      (print "BUFF:" 160 1 11)
+      (spr 276 190 0 0 1 0 0 1 1))) ;; Affiche ta flèche verte
+      
   (when (> message-timer 0)
     (set message-timer (- message-timer 1))
     (print message-flash 70 112 2)))
-
 
 
 ;; ============================================================
@@ -798,7 +816,8 @@
   (set shop-tour nil)
   (set shop-emplacement nil)
   (reset-emplacements)
-  (set state :playing))
+  (set state :playing)
+  (set buff-timer 0))
 
 ;; ============================================================
 ;; BOUCLE PRINCIPALE : _G.TIC
@@ -832,8 +851,9 @@
 
                     ;; Pas de shop : gameplay normal
                     (do
-                      ;; Spawn d'un ennemi toutes les 30 frames (0.5 sec)
-                      ;; tant qu'il y a moins de 100 ennemis a l'ecran
+                      ;; --- NOUVEAU : Décrémente le timer du buff ---
+                      (when (> buff-timer 0) 
+                        (set buff-timer (- buff-timer 1)))
 
                       (gerer-vagues)
                       (handle-click)
